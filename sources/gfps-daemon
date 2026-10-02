@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+"""Single-instance wrapper around gfps-reader for every bar on every monitor.
+
+Each bar widget starts this; a lock makes all but one wait as standbys, and a
+standby takes over the moment the active one exits. The active one runs
+gfps-reader, follows the connected Bluetooth audio devices (minus Galaxy Buds,
+which GalaxyBudsClient covers, and Apple devices, which the AirPods collector
+covers) and writes their batteries to
+
+    ~/.cache/omarchy-gadget-batteries/gfps.json
+
+in the gadgets external format, refreshed every POLL seconds so readers can
+tell a dead daemon from a quiet one (entries carry ts/ttl).
+"""
+import fcntl
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+
+POLL = 15
+TTL = 120
+HERE = os.path.dirname(os.path.realpath(__file__))
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "omarchy-gadget-batteries")
+OUTPUT = os.path.join(CACHE, "gfps.json")
+BUDS_STATUS = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+                           "omarchy-buds", "status.json")
+
+
+def write_atomic(path, entries):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(entries, handle)
+    os.replace(tmp, path)
+
+
+def buds_address():
+    try:
+        with open(BUDS_STATUS) as handle:
+            return str(json.load(handle).get("address", "")).upper()
+    except (OSError, ValueError):
+        return ""
+
+
+def connected_audio(bus, dbus):
+    """address -> name for connected audio devices gfps-reader should follow."""
+    manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
+    skip = buds_address()
+    out = {}
+    for ifs in manager.GetManagedObjects().values():
+        dev = ifs.get("org.bluez.Device1")
+        if not dev or not dev.get("Connected") or not str(dev.get("Icon", "")).startswith("audio"):
+            continue
+        address = str(dev.get("Address", "")).upper()
+        name = str(dev.get("Alias", dev.get("Name", address)))
+        apple = ":v004c" in str(dev.get("Modalias", "")).lower() or re.search(r"airpods|beats", name, re.I)
+        if address and address != skip and not apple:
+            out[address] = name
+    return out
+
+
+def level(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return -1
+    return min(100, value) if value >= 0 else -1
+
+
+def entry(address, name, state, now):
+    if not state.get("stream"):
+        return None
+    if state.get("single"):
+        pct, charging, parts = level(state.get("battery")), bool(state.get("batteryCharging")), {}
+    else:
+        parts = {k: level(state.get(k)) for k in ("left", "right", "case")}
+        pods = [v for v in (parts["left"], parts["right"]) if v >= 0]
+        if not pods:
+            return None
+        pct = min(pods)
+        charging = bool(state.get("leftCharging") or state.get("rightCharging"))
+    if pct < 0:
+        return None
+    result = {"id": "gfps:" + address, "name": name, "kind": "headset" if state.get("single") else "earbuds",
+              "pct": pct, "charging": charging, "ts": int(now), "ttl": TTL, "transport": "bluetooth"}
+    result.update(parts)
+    return result
+
+
+def main():
+    os.makedirs(CACHE, exist_ok=True)
+    lock = open(os.path.join(CACHE, "gfps.lock"), "w")
+    fcntl.flock(lock, fcntl.LOCK_EX)  # standbys wait here
+
+    try:
+        import dbus
+        bus = dbus.SystemBus()
+    except Exception:
+        write_atomic(OUTPUT, [])
+        time.sleep(60)
+        return 1
+
+    reader = subprocess.Popen([os.path.join(HERE, "gfps-reader")], stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, text=True, bufsize=1)
+    states = {}
+    states_lock = threading.Lock()
+
+    def read_lines():
+        for line in reader.stdout:
+            try:
+                parsed = json.loads(line)
+            except ValueError:
+                continue
+            address = str(parsed.get("address", "")).upper()
+            if address:
+                with states_lock:
+                    states[address] = parsed
+
+    threading.Thread(target=read_lines, daemon=True).start()
+
+    followed = {}
+    try:
+        while reader.poll() is None:
+            try:
+                current = connected_audio(bus, dbus)
+            except dbus.DBusException:
+                current = {}
+            for address in current.keys() - followed.keys():
+                reader.stdin.write("follow %s\n" % address)
+            for address in followed.keys() - current.keys():
+                reader.stdin.write("unfollow %s\n" % address)
+                with states_lock:
+                    states.pop(address, None)
+            reader.stdin.flush()
+            followed = current
+
+            now = time.time()
+            with states_lock:
+                entries = [entry(a, followed[a], s, now) for a, s in states.items() if a in followed]
+            write_atomic(OUTPUT, [e for e in entries if e])
+            time.sleep(POLL)
+    except (BrokenPipeError, KeyboardInterrupt):
+        pass
+    finally:
+        if reader.poll() is None:
+            reader.terminate()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

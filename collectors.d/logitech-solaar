@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""Logitech HID++ batteries from `solaar show` (gadgets external format).
+
+Solaar talks to the device itself, so it stays right where the kernel's
+hidpp_battery goes stale: a mouse on its charging cable leaves the receiver
+(kernel: online=0, last level frozen) and shows up as a wired USB device that
+only Solaar reads, with an explicit RECHARGING status. Only devices that are
+reachable right now are listed; paired-but-offline ones are not.
+"""
+import json
+import re
+import shutil
+import subprocess
+import sys
+import time
+
+KINDS = {"mouse": "mouse", "keyboard": "keyboard", "headset": "headset",
+         "trackball": "mouse", "touchpad": "mouse", "numpad": "keyboard"}
+CHARGING = ("RECHARGING", "SLOW_RECHARGE", "ALMOST_FULL")
+
+
+def main():
+    if not shutil.which("solaar"):
+        return []
+    try:
+        text = subprocess.run(["solaar", "show"], capture_output=True, text=True, timeout=18).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+
+    entries, codename, kind, usb_id = [], None, None, None
+    now = int(time.time())
+    for line in text.splitlines():
+        if line and not line[0].isspace():  # new top-level device or receiver
+            codename = kind = usb_id = None
+            continue
+        # The summary aligns its colons ("Kind         : mouse"); the feature dump
+        # below repeats keys without padding ("Kind: None"), which must not win.
+        field = re.match(r"\s+(Codename|Kind|USB id)\s+:\s*(.+)", line)
+        if field:
+            key, value = field.group(1), field.group(2).strip()
+            if key == "Codename":
+                codename = re.sub(r"\s*-\s*(Wireless|USB) Mode$", "", value)
+            elif key == "Kind":
+                kind = value.lower()
+            else:
+                usb_id = value.lower()
+            continue
+        battery = re.match(r"\s+Battery:\s*(\d+)%,\s*BatteryStatus\.(\w+)", line)
+        if battery and codename:
+            status = battery.group(2)
+            entries.append({
+                "id": "solaar:" + (usb_id or codename),
+                "name": "Logitech " + codename,
+                "kind": KINDS.get(kind or "", "other"),
+                "pct": 100 if status == "FULL" else int(battery.group(1)),
+                "charging": status in CHARGING,
+                "ts": now,
+                "ttl": 180,
+                "transport": "wireless",
+            })
+            codename = None  # each device block reports its battery twice
+    return entries
+
+
+if __name__ == "__main__":
+    sys.stdout.write(json.dumps(main()) + "\n")

@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.69harold69.gadget-batteries",
+  "name": "Gadget Batteries",
+  "version": "1.1.0",
+  "author": "69Harold69",
+  "description": "Battery of every connected gadget in one bar widget: Bluetooth and Logitech devices, USB/2.4 GHz headsets, Galaxy Buds, Fast Pair earbuds, AirPods, Xinmeng 2.4G keyboards and your own scripts.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Gadget Batteries",
+    "description": "Battery of connected mice, keyboards, headsets and earbuds",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "showPercentage": false,
+      "lowThreshold": 15,
+      "externalPath": "",
+      "barIcon": "fixed",
+      "names": {}
+    },
+    "schema": [
+      {
+        "key": "barIcon",
+        "type": "string",
+        "label": "Bar icon: fixed, or lowest (icon of the gadget with the least battery)",
+        "defaultValue": "fixed"
+      },
+      {
+        "key": "showPercentage",
+        "type": "boolean",
+        "label": "Show the lowest battery percentage in the bar",
+        "defaultValue": false
+      },
+      {
+        "key": "lowThreshold",
+        "type": "number",
+        "label": "Notify when a gadget drops to this percentage",
+        "defaultValue": 15
+      },
+      {
+        "key": "externalPath",
+        "type": "string",
+        "label": "External JSON file (empty: ~/.cache/omarchy-accessories/external.json)",
+        "defaultValue": ""
+      },
+      {
+        "key": "names",
+        "type": "object",
+        "label": "Rename gadgets: {\"Reported name\": \"Your name\"}",
+        "defaultValue": {}
+      }
+    ]
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/69Harold69/omarchy-gadget-batteries"
+}

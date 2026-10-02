@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""Per-pod AirPods / Beats battery from Apple's BLE proximity-pairing adverts.
+
+Prints a JSON array in the gadgets external format and exits:
+
+    [{"id": "airpods:AA:BB:..", "name": "AirPods Pro", "kind": "earbuds",
+      "pct": 80, "charging": false, "left": 80, "right": 90, "case": 50,
+      "ts": 1750000000, "ttl": 180, "transport": "bluetooth"}]
+
+Only scans when an Apple audio device is connected, and only for a few
+seconds of LE discovery, so it costs nothing the rest of the time.
+
+The advert is manufacturer data for company 0x004C whose first byte is 0x07
+(proximity pairing). Nibble layout as decoded by AirStatus
+(https://github.com/delphiki/AirStatus): pod levels 0-10 (x10 %), 15 = no
+reading, and a flip bit that swaps left/right depending on which pod is
+primary. The advert carries no address that ties it to the paired device
+(it rotates), so the strongest nearby advert above MIN_RSSI is taken, as
+AirStatus does.
+"""
+import json
+import sys
+import time
+
+SCAN_SECONDS = 6
+MIN_RSSI = -65
+APPLE = 0x004C
+
+
+def out(entries):
+    sys.stdout.write(json.dumps(entries) + "\n")
+    sys.exit(0)
+
+
+try:
+    import dbus
+except ImportError:
+    out([])
+
+
+def is_apple_audio(props):
+    modalias = str(props.get("Modalias", "")).lower()
+    name = str(props.get("Name", props.get("Alias", "")))
+    icon = str(props.get("Icon", ""))
+    apple = ":v004c" in modalias or "airpods" in name.lower() or "beats" in name.lower()
+    return bool(props.get("Connected", False)) and apple and icon.startswith("audio")
+
+
+def level(nibble):
+    return nibble * 10 if 0 <= nibble <= 10 else -1
+
+
+def decode(data):
+    if len(data) < 25 or data[0] != 0x07:
+        return None
+    raw = bytes(data).hex()
+    flip = (int(raw[10], 16) & 0x02) == 0
+    left = level(int(raw[12 if flip else 13], 16))
+    right = level(int(raw[13 if flip else 12], 16))
+    case = level(int(raw[15], 16))
+    charging = int(raw[14], 16)
+    return {
+        "left": left,
+        "right": right,
+        "case": case,
+        "leftCharging": (charging & (0b10 if flip else 0b01)) != 0,
+        "rightCharging": (charging & (0b01 if flip else 0b10)) != 0,
+        "caseCharging": (charging & 0b100) != 0,
+    }
+
+
+def main():
+    try:
+        bus = dbus.SystemBus()
+        manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
+        objects = manager.GetManagedObjects()
+    except dbus.DBusException:
+        out([])
+
+    connected = [(path, ifs["org.bluez.Device1"]) for path, ifs in objects.items()
+                 if "org.bluez.Device1" in ifs and is_apple_audio(ifs["org.bluez.Device1"])]
+    adapters = [path for path, ifs in objects.items() if "org.bluez.Adapter1" in ifs]
+    if not connected or not adapters:
+        out([])
+
+    adapter = dbus.Interface(bus.get_object("org.bluez", adapters[0]), "org.bluez.Adapter1")
+    started = False
+    try:
+        adapter.SetDiscoveryFilter({"Transport": "le", "DuplicateData": True})
+        adapter.StartDiscovery()
+        started = True
+        time.sleep(SCAN_SECONDS)
+        objects = manager.GetManagedObjects()
+    except dbus.DBusException:
+        pass
+    finally:
+        if started:
+            try:
+                adapter.StopDiscovery()
+            except dbus.DBusException:
+                pass
+
+    best = None
+    for ifs in objects.values():
+        dev = ifs.get("org.bluez.Device1")
+        if not dev:
+            continue
+        data = dev.get("ManufacturerData", {}).get(dbus.UInt16(APPLE))
+        rssi = int(dev.get("RSSI", -999))
+        if data is None or rssi < MIN_RSSI:
+            continue
+        reading = decode([int(b) for b in data])
+        if reading and (best is None or rssi > best[0]):
+            best = (rssi, reading)
+
+    if best is None:
+        out([])
+
+    reading = best[1]
+    path, props = connected[0]
+    pods = [v for v in (reading["left"], reading["right"]) if v >= 0]
+    if not pods:
+        out([])
+    out([{
+        "id": "airpods:" + str(props.get("Address", path)),
+        "name": str(props.get("Alias", props.get("Name", "AirPods"))),
+        "kind": "earbuds",
+        "pct": min(pods),
+        "charging": reading["leftCharging"] or reading["rightCharging"],
+        "left": reading["left"],
+        "right": reading["right"],
+        "case": reading["case"],
+        "ts": int(time.time()),
+        "ttl": 180,
+        "transport": "bluetooth",
+    }])
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Battery of Xinmeng-made keyboards (Attack Shark M87 PRO V2, M87 Lite, C87)
+through their 2.4G dongle 0c45:fefe.
+
+Protocol from Xinmeng's own "M87 keyboard" app 1.0.0.8 (szxinmeng.com.cn,
+"M87通用"): an output report [0x20, 0x01] on the dongle's USB interface 03
+(usage page 0xFF60, 32-byte reports) is answered with [0x20, 0x01, ?, battery].
+A battery of 0 means the keyboard is asleep or out of range; nothing is listed.
+
+Needs setup/70-gadgets-xinmeng-dongle.rules so the user can open interface 03.
+Prints a JSON array in the gadgets external format.
+"""
+import json
+import os
+import select
+import sys
+import time
+
+USB_ID = "0003:0C45:FEFE"
+
+
+def dongle_node():
+    for name in os.listdir("/sys/class/hidraw"):
+        dev = os.path.realpath("/sys/class/hidraw/%s/device" % name)
+        iface = os.path.join(dev, "..", "bInterfaceNumber")
+        if USB_ID in dev and os.path.exists(iface):
+            with open(iface) as handle:
+                if handle.read().strip() == "03":
+                    return "/dev/" + name
+    return None
+
+
+def read_battery(node):
+    fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        for _ in range(3):
+            os.write(fd, bytes([0x00, 0x20, 0x01]) + bytes(30))
+            end = time.time() + 1.5
+            while time.time() < end:
+                if not select.select([fd], [], [], 0.3)[0]:
+                    continue
+                data = os.read(fd, 64)
+                if len(data) > 3 and data[0] == 0x20 and data[1] == 0x01:
+                    return min(100, data[3]) if data[3] else None
+    finally:
+        os.close(fd)
+    return None
+
+
+def main():
+    node = dongle_node()
+    if not node:
+        return []
+    try:
+        level = read_battery(node)
+    except OSError:
+        return []
+    if level is None:
+        return []
+    return [{
+        "id": "xinmeng:0c45:fefe",
+        "name": "M87 keyboard (2.4G)",
+        "kind": "keyboard",
+        "pct": level,
+        "charging": False,
+        "ts": int(time.time()),
+        "ttl": 180,
+        "transport": "wireless",
+    }]
+
+
+if __name__ == "__main__":
+    sys.stdout.write(json.dumps(main()) + "\n")

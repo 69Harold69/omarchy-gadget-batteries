@@ -1,0 +1,6 @@
+# Gadget Batteries: let the logged-in user query the battery of Xinmeng-made
+# keyboards (Attack Shark M87 PRO V2, ...) through their 2.4G dongle 0c45:fefe.
+# Only USB interface 03 (vendor usage page 0xFF60) is opened up; interfaces
+# 00-02 carry keystrokes and stay root-only.
+SUBSYSTEM=="hidraw", KERNELS=="0003:0C45:FEFE.*", ENV{GADGETS_XINMENG}="1"
+SUBSYSTEM=="hidraw", ENV{GADGETS_XINMENG}=="1", ATTRS{bInterfaceNumber}=="03", TAG+="uaccess"

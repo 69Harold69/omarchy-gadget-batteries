@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+"""Run every gadget collector and print their entries as one JSON array.
+
+Collectors are executables in the plugin's collectors.d/ and in
+~/.config/omarchy/gadget-batteries/collectors.d/. Each prints a JSON array in the
+external format (see README.md) and exits. A collector that fails, times out
+or prints something else is skipped, so one broken script never hides the rest.
+
+Every bar (one per monitor) calls this; a lock plus a short-lived cache in
+~/.cache/omarchy-gadget-batteries/collectors.json make the collectors run once.
+"""
+import fcntl
+import json
+import os
+import subprocess
+import sys
+import time
+
+TIMEOUT = 20
+FRESH = 45
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "omarchy-gadget-batteries")
+OUTPUT = os.path.join(CACHE, "collectors.json")
+HERE = os.path.dirname(os.path.realpath(__file__))
+DIRS = [
+    os.path.join(HERE, "collectors.d"),
+    os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"),
+                 "omarchy", "gadget-batteries", "collectors.d"),
+]
+
+
+def collectors():
+    for directory in DIRS:
+        try:
+            names = sorted(os.listdir(directory))
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(directory, name)
+            if os.path.isfile(path) and os.access(path, os.X_OK):
+                yield path
+
+
+def run(path):
+    try:
+        result = subprocess.run([path], capture_output=True, text=True, timeout=TIMEOUT)
+        data = json.loads(result.stdout or "[]")
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return []
+    return [entry for entry in data if isinstance(entry, dict)] if isinstance(data, list) else []
+
+
+os.makedirs(CACHE, exist_ok=True)
+with open(os.path.join(CACHE, "collectors.lock"), "w") as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    try:
+        if time.time() - os.path.getmtime(OUTPUT) < FRESH:
+            with open(OUTPUT) as handle:
+                sys.stdout.write(handle.read())
+            sys.exit(0)
+    except OSError:
+        pass
+    entries = []
+    for path in collectors():
+        entries.extend(run(path))
+    text = json.dumps(entries) + "\n"
+    with open(OUTPUT + ".tmp", "w") as handle:
+        handle.write(text)
+    os.replace(OUTPUT + ".tmp", OUTPUT)
+    sys.stdout.write(text)
