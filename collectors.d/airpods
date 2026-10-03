@@ -15,16 +15,26 @@ The advert is manufacturer data for company 0x004C whose first byte is 0x07
 (https://github.com/delphiki/AirStatus): pod levels 0-10 (x10 %), 15 = no
 reading, and a flip bit that swaps left/right depending on which pod is
 primary. The advert carries no address that ties it to the paired device
-(it rotates), so the strongest nearby advert above MIN_RSSI is taken, as
-AirStatus does.
+(it rotates), so it is matched by model instead: bytes 3-4 of the advert
+(little-endian, 0e 20 -> 0x200E) must equal the product id in the connected
+device's Modalias (bluetooth:v004Cp200E...), and the strongest such advert
+above MIN_RSSI wins. Without a readable Modalias any Apple advert is taken,
+but only from much closer (MIN_RSSI_UNMATCHED), so other people's AirPods
+nearby are not reported as yours.
+
+Each connected device is scanned for on its own adapter (the prefix of its
+D-Bus path), so machines with several Bluetooth adapters work too.
 """
 import json
+import re
 import sys
 import time
 
 SCAN_SECONDS = 6
 MIN_RSSI = -65
+MIN_RSSI_UNMATCHED = -55
 APPLE = 0x004C
+DEVICE = "org.bluez.Device1"
 
 
 def out(entries):
@@ -50,6 +60,22 @@ def level(nibble):
     return nibble * 10 if 0 <= nibble <= 10 else -1
 
 
+def modalias_product(modalias):
+    """Product id from an Apple Bluetooth Modalias, or None."""
+    match = re.search(r"v004cp([0-9a-f]{4})", str(modalias or "").lower())
+    return int(match.group(1), 16) if match else None
+
+
+def advert_model(data):
+    """Model id of a proximity-pairing advert: bytes 3-4, little-endian."""
+    return data[3] | (data[4] << 8) if len(data) > 4 and data[0] == 0x07 else None
+
+
+def adapter_of(path):
+    """/org/bluez/hci0/dev_XX -> /org/bluez/hci0"""
+    return str(path).rsplit("/", 1)[0]
+
+
 def decode(data):
     if len(data) < 25 or data[0] != 0x07:
         return None
@@ -69,28 +95,67 @@ def decode(data):
     }
 
 
-def main():
-    try:
-        bus = dbus.SystemBus()
-        manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
-        objects = manager.GetManagedObjects()
-    except dbus.DBusException:
-        out([])
+def best_reading(objects, path, props):
+    """Strongest advert, seen by the same adapter, that belongs to the
+    connected device at `path` with properties `props`."""
+    adapter = adapter_of(path)
+    expected = modalias_product(props.get("Modalias"))
+    min_rssi = MIN_RSSI if expected is not None else MIN_RSSI_UNMATCHED
+    best = None
+    for object_path, ifs in objects.items():
+        dev = ifs.get(DEVICE)
+        if not dev or adapter_of(object_path) != adapter:
+            continue
+        data = dev.get("ManufacturerData", {}).get(APPLE)
+        rssi = int(dev.get("RSSI", -999))
+        if data is None or rssi < min_rssi:
+            continue
+        data = [int(b) for b in data]
+        if expected is not None and advert_model(data) != expected:
+            continue
+        reading = decode(data)
+        if reading and (best is None or rssi > best[0]):
+            best = (rssi, reading)
+    return best[1] if best else None
 
-    connected = [(path, ifs["org.bluez.Device1"]) for path, ifs in objects.items()
-                 if "org.bluez.Device1" in ifs and is_apple_audio(ifs["org.bluez.Device1"])]
-    adapters = [path for path, ifs in objects.items() if "org.bluez.Adapter1" in ifs]
-    if not connected or not adapters:
-        out([])
 
-    adapter = dbus.Interface(bus.get_object("org.bluez", adapters[0]), "org.bluez.Adapter1")
+def entry(path, props, reading, now):
+    pods = [v for v in (reading["left"], reading["right"]) if v >= 0]
+    if not pods:
+        return None
+    return {
+        "id": "airpods:" + str(props.get("Address", path)),
+        "name": str(props.get("Alias", props.get("Name", "AirPods"))),
+        "kind": "earbuds",
+        "pct": min(pods),
+        "charging": reading["leftCharging"] or reading["rightCharging"],
+        "left": reading["left"],
+        "right": reading["right"],
+        "case": reading["case"],
+        "ts": int(now),
+        "ttl": 180,
+        "transport": "bluetooth",
+    }
+
+
+def entries_for(connected, objects, now):
+    out_entries = []
+    for path, props in connected:
+        reading = best_reading(objects, path, props)
+        result = entry(path, props, reading, now) if reading else None
+        if result:
+            out_entries.append(result)
+    return out_entries
+
+
+def scan(bus, adapter_path):
+    adapter = dbus.Interface(bus.get_object("org.bluez", adapter_path), "org.bluez.Adapter1")
     started = False
     try:
         adapter.SetDiscoveryFilter({"Transport": "le", "DuplicateData": True})
         adapter.StartDiscovery()
         started = True
         time.sleep(SCAN_SECONDS)
-        objects = manager.GetManagedObjects()
     except dbus.DBusException:
         pass
     finally:
@@ -100,40 +165,29 @@ def main():
             except dbus.DBusException:
                 pass
 
-    best = None
-    for ifs in objects.values():
-        dev = ifs.get("org.bluez.Device1")
-        if not dev:
-            continue
-        data = dev.get("ManufacturerData", {}).get(dbus.UInt16(APPLE))
-        rssi = int(dev.get("RSSI", -999))
-        if data is None or rssi < MIN_RSSI:
-            continue
-        reading = decode([int(b) for b in data])
-        if reading and (best is None or rssi > best[0]):
-            best = (rssi, reading)
 
-    if best is None:
+def main():
+    try:
+        bus = dbus.SystemBus()
+        manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")
+        objects = manager.GetManagedObjects()
+    except dbus.DBusException:
         out([])
 
-    reading = best[1]
-    path, props = connected[0]
-    pods = [v for v in (reading["left"], reading["right"]) if v >= 0]
-    if not pods:
+    connected = [(path, ifs[DEVICE]) for path, ifs in objects.items()
+                 if DEVICE in ifs and is_apple_audio(ifs[DEVICE])]
+    adapters = {path for path, ifs in objects.items() if "org.bluez.Adapter1" in ifs}
+    scan_on = sorted({adapter_of(path) for path, _ in connected} & adapters)
+    if not scan_on:
         out([])
-    out([{
-        "id": "airpods:" + str(props.get("Address", path)),
-        "name": str(props.get("Alias", props.get("Name", "AirPods"))),
-        "kind": "earbuds",
-        "pct": min(pods),
-        "charging": reading["leftCharging"] or reading["rightCharging"],
-        "left": reading["left"],
-        "right": reading["right"],
-        "case": reading["case"],
-        "ts": int(time.time()),
-        "ttl": 180,
-        "transport": "bluetooth",
-    }])
+
+    for adapter_path in scan_on:
+        scan(bus, adapter_path)
+    try:
+        objects = manager.GetManagedObjects()
+    except dbus.DBusException:
+        out([])
+    out(entries_for(connected, objects, time.time()))
 
 
 if __name__ == "__main__":

@@ -50,6 +50,62 @@ class AirPodsTest(unittest.TestCase):
         self.assertIsNone(airpods.decode([0x10, 0x05, 0x01]))
 
 
+class AirPodsMatchingTest(unittest.TestCase):
+    """The advert must belong to the connected device, not to nearby AirPods."""
+
+    # 07 19 01 <model lo> <model hi> <flip> <pods> <charging|case>, padded to 25 bytes
+    PRO = "0719010e20" + "558945" + "00" * 17    # 0e 20 -> 0x200E, L 80 R 90
+    OTHER = "0719011320" + "559915" + "00" * 17  # 13 20 -> 0x2013
+    CONNECTED = "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF"
+
+    def setUp(self):
+        self.props = {"Address": "AA:BB:CC:DD:EE:FF", "Alias": "My AirPods Pro",
+                      "Modalias": "bluetooth:v004Cp200Ed2111"}
+
+    def objects(self, *adverts):
+        result = {self.CONNECTED: {"org.bluez.Device1": self.props}}
+        for i, (path, hexdata, rssi) in enumerate(adverts):
+            result[path] = {"org.bluez.Device1": {
+                "ManufacturerData": {airpods.APPLE: list(bytes.fromhex(hexdata))}, "RSSI": rssi}}
+        return result
+
+    def run_entries(self, objects):
+        return airpods.entries_for([(self.CONNECTED, self.props)], objects, 1000)
+
+    def test_model_helpers(self):
+        self.assertEqual(airpods.modalias_product("bluetooth:v004Cp200Ed2111"), 0x200E)
+        self.assertIsNone(airpods.modalias_product("usb:v046DpC547"))
+        self.assertEqual(airpods.advert_model(list(bytes.fromhex(self.PRO))), 0x200E)
+        self.assertEqual(airpods.adapter_of(self.CONNECTED), "/org/bluez/hci0")
+
+    def test_matching_model_is_used(self):
+        entries = self.run_entries(self.objects(("/org/bluez/hci0/dev_1", self.PRO, -70 + 10)))
+        self.assertEqual([(e["name"], e["left"], e["right"]) for e in entries],
+                         [("My AirPods Pro", 80, 90)])
+
+    def test_other_model_is_ignored(self):
+        # Someone else's AirPods (another model) right next to us: nothing.
+        entries = self.run_entries(self.objects(("/org/bluez/hci0/dev_1", self.OTHER, -30)))
+        self.assertEqual(entries, [])
+
+    def test_strongest_matching_model_wins(self):
+        weak = "0719010e20" + "552245" + "00" * 17  # same model, 20% / 20%
+        entries = self.run_entries(self.objects(("/org/bluez/hci0/dev_1", weak, -64),
+                                                ("/org/bluez/hci0/dev_2", self.PRO, -40),
+                                                ("/org/bluez/hci0/dev_3", self.OTHER, -20)))
+        self.assertEqual(entries[0]["left"], 80)
+
+    def test_other_adapter_is_ignored(self):
+        entries = self.run_entries(self.objects(("/org/bluez/hci1/dev_1", self.PRO, -40)))
+        self.assertEqual(entries, [])
+
+    def test_without_modalias_needs_a_closer_advert(self):
+        del self.props["Modalias"]
+        self.assertEqual(self.run_entries(self.objects(("/org/bluez/hci0/dev_1", self.OTHER, -60))), [])
+        entries = self.run_entries(self.objects(("/org/bluez/hci0/dev_1", self.OTHER, -50)))
+        self.assertEqual(len(entries), 1)
+
+
 class SolaarTest(unittest.TestCase):
     def test_parses_devices(self):
         result = subprocess.CompletedProcess([], 0, stdout=SOLAAR_SHOW)
