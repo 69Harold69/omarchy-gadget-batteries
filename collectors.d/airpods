@@ -53,10 +53,12 @@ def out(entries):
     sys.exit(0)
 
 
+# Without python-dbus there is nothing to read; main() reports no gadgets.
+# Exiting here instead would also end any test that imports this file.
 try:
     import dbus
 except ImportError:
-    out([])
+    dbus = None
 
 
 def is_apple_audio(props):
@@ -204,6 +206,8 @@ def scan(bus, adapter_path):
 
 
 def main():
+    if dbus is None:
+        out([])
     try:
         bus = dbus.SystemBus()
         manager = dbus.Interface(bus.get_object("org.bluez", "/"), "org.freedesktop.DBus.ObjectManager")

@@ -6,8 +6,20 @@ from importlib.machinery import SourceFileLoader
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-airpods = SourceFileLoader("airpods", os.path.join(ROOT, "collectors.d", "airpods")).load_module()
-solaar = SourceFileLoader("solaar", os.path.join(ROOT, "collectors.d", "logitech-solaar")).load_module()
+
+
+def load(name, filename):
+    """Import a collector script. A collector that exits while being imported
+    (e.g. when python-dbus is missing) would otherwise end this whole run
+    silently with status 0, so turn that into a loud failure."""
+    try:
+        return SourceFileLoader(name, os.path.join(ROOT, "collectors.d", filename)).load_module()
+    except SystemExit as error:
+        raise RuntimeError("collectors.d/%s exited while being imported (%r)" % (filename, error.code))
+
+
+airpods = load("airpods", "airpods")
+solaar = load("solaar", "logitech-solaar")
 
 SOLAAR_SHOW = """solaar version 1.1.20
 
