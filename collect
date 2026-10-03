@@ -8,6 +8,8 @@ or prints something else is skipped, so one broken script never hides the rest.
 
 Every bar (one per monitor) calls this; a lock plus a short-lived cache in
 ~/.cache/omarchy-gadget-batteries/collectors.json make the collectors run once.
+While the panel is open (GADGET_BATTERIES_PANEL_OPEN=1, passed on to the
+collectors) the cache is kept much shorter so the panel shows fresh levels.
 """
 import fcntl
 import json
@@ -18,6 +20,7 @@ import time
 
 TIMEOUT = 20
 FRESH = 45
+FRESH_PANEL_OPEN = 8
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "omarchy-gadget-batteries")
 OUTPUT = os.path.join(CACHE, "collectors.json")
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -53,7 +56,8 @@ os.makedirs(CACHE, exist_ok=True)
 with open(os.path.join(CACHE, "collectors.lock"), "w") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     try:
-        if time.time() - os.path.getmtime(OUTPUT) < FRESH:
+        fresh = FRESH_PANEL_OPEN if os.environ.get("GADGET_BATTERIES_PANEL_OPEN") == "1" else FRESH
+        if time.time() - os.path.getmtime(OUTPUT) < fresh:
             with open(OUTPUT) as handle:
                 sys.stdout.write(handle.read())
             sys.exit(0)

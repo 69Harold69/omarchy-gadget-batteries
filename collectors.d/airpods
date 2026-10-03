@@ -24,8 +24,15 @@ nearby are not reported as yours.
 
 Each connected device is scanned for on its own adapter (the prefix of its
 D-Bus path), so machines with several Bluetooth adapters work too.
+
+LE discovery can cut audio on combined Wi-Fi/Bluetooth chips, so the last
+reading is kept in ~/.cache/omarchy-gadget-batteries/airpods.json and the
+radio is only scanned again after RESCAN_AFTER seconds, or right away while
+the panel is open (GADGET_BATTERIES_PANEL_OPEN=1, set by Panel.qml). Entries
+carry a TTL longer than that interval so they never go offline in between.
 """
 import json
+import os
 import re
 import sys
 import time
@@ -33,7 +40,11 @@ import time
 SCAN_SECONDS = 6
 MIN_RSSI = -65
 MIN_RSSI_UNMATCHED = -55
+RESCAN_AFTER = 300
+TTL = 360
 APPLE = 0x004C
+CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"),
+                     "omarchy-gadget-batteries", "airpods.json")
 DEVICE = "org.bluez.Device1"
 
 
@@ -133,7 +144,7 @@ def entry(path, props, reading, now):
         "right": reading["right"],
         "case": reading["case"],
         "ts": int(now),
-        "ttl": 180,
+        "ttl": TTL,
         "transport": "bluetooth",
     }
 
@@ -146,6 +157,32 @@ def entries_for(connected, objects, now):
         if result:
             out_entries.append(result)
     return out_entries
+
+
+def cached_entries(connected, now, panel_open):
+    """Last reading for these devices, or None when a new scan is due."""
+    if panel_open:
+        return None
+    try:
+        with open(CACHE) as handle:
+            cache = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    ids = sorted("airpods:" + str(props.get("Address", path)) for path, props in connected)
+    if cache.get("devices") != ids or now - float(cache.get("scannedAt", 0)) >= RESCAN_AFTER:
+        return None
+    return cache.get("entries", [])
+
+
+def save_cache(connected, entries, now):
+    ids = sorted("airpods:" + str(props.get("Address", path)) for path, props in connected)
+    try:
+        os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+        with open(CACHE + ".tmp", "w") as handle:
+            json.dump({"scannedAt": now, "devices": ids, "entries": entries}, handle)
+        os.replace(CACHE + ".tmp", CACHE)
+    except OSError:
+        pass
 
 
 def scan(bus, adapter_path):
@@ -181,13 +218,20 @@ def main():
     if not scan_on:
         out([])
 
+    now = time.time()
+    cached = cached_entries(connected, now, os.environ.get("GADGET_BATTERIES_PANEL_OPEN") == "1")
+    if cached is not None:
+        out(cached)
+
     for adapter_path in scan_on:
         scan(bus, adapter_path)
     try:
         objects = manager.GetManagedObjects()
     except dbus.DBusException:
         out([])
-    out(entries_for(connected, objects, time.time()))
+    entries = entries_for(connected, objects, now)
+    save_cache(connected, entries, now)
+    out(entries)
 
 
 if __name__ == "__main__":

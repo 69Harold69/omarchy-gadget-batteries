@@ -26,7 +26,7 @@ run unsandboxed with your user permissions.
 | [HeadsetControl](https://github.com/Sapd/HeadsetControl) | USB / 2.4 GHz headsets: Logitech G, SteelSeries, HyperX, Corsair, Roccat, ... | `headsetcontrol` (optional) |
 | [Omarchy Buds](https://github.com/dgalarza/omarchy-buds) | Galaxy Buds, per earbud and case | the Omarchy Buds plugin + GalaxyBudsClient (optional) |
 | Google Fast Pair | Per-earbud battery of Sony, JBL, Jabra, Nothing, Soundcore, Pixel Buds and other Fast Pair earbuds | `python-dbus`, `python-gobject` (ship with Omarchy) |
-| Apple BLE adverts | AirPods and Beats, per pod and case | `python-dbus` |
+| Apple BLE adverts | AirPods and Beats, per pod and case. Only adverts whose model matches your connected pair; scans 6 s every 5 minutes (right away while the panel is open) | `python-dbus` |
 | Xinmeng 2.4G dongle | Keyboards made by Xinmeng on the `0c45:fefe` dongle: Attack Shark M87 PRO V2, M87 Lite, C87 | the udev rule below |
 | Your own JSON / scripts | anything | see [Add your own gadgets](#add-your-own-gadgets) |
 

@@ -106,6 +106,44 @@ class AirPodsMatchingTest(unittest.TestCase):
         self.assertEqual(len(entries), 1)
 
 
+class AirPodsCacheTest(unittest.TestCase):
+    """Scans are reused for RESCAN_AFTER seconds unless the panel is open."""
+
+    CONNECTED = [("/org/bluez/hci0/dev_AA", {"Address": "AA"})]
+    ENTRY = [{"id": "airpods:AA", "pct": 80, "ttl": airpods.TTL}]
+
+    def setUp(self):
+        import tempfile
+        self.dir = tempfile.TemporaryDirectory()
+        self.patch = mock.patch.object(airpods, "CACHE", os.path.join(self.dir.name, "airpods.json"))
+        self.patch.start()
+
+    def tearDown(self):
+        self.patch.stop()
+        self.dir.cleanup()
+
+    def test_ttl_outlives_rescan_interval(self):
+        self.assertGreaterEqual(airpods.TTL, 360)
+        self.assertGreater(airpods.TTL, airpods.RESCAN_AFTER)
+
+    def test_fresh_cache_is_reused(self):
+        airpods.save_cache(self.CONNECTED, self.ENTRY, 1000)
+        self.assertEqual(airpods.cached_entries(self.CONNECTED, 1000 + 299, False), self.ENTRY)
+
+    def test_old_cache_rescans(self):
+        airpods.save_cache(self.CONNECTED, self.ENTRY, 1000)
+        self.assertIsNone(airpods.cached_entries(self.CONNECTED, 1000 + 300, False))
+
+    def test_open_panel_rescans(self):
+        airpods.save_cache(self.CONNECTED, self.ENTRY, 1000)
+        self.assertIsNone(airpods.cached_entries(self.CONNECTED, 1001, True))
+
+    def test_other_connected_devices_rescan(self):
+        airpods.save_cache(self.CONNECTED, self.ENTRY, 1000)
+        other = [("/org/bluez/hci0/dev_BB", {"Address": "BB"})]
+        self.assertIsNone(airpods.cached_entries(other, 1001, False))
+
+
 class SolaarTest(unittest.TestCase):
     def test_parses_devices(self):
         result = subprocess.CompletedProcess([], 0, stdout=SOLAAR_SHOW)

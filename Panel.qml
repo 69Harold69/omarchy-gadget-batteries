@@ -108,7 +108,11 @@ Panel {
 
 
   function refreshCollectors() {
-    if (!collectorsProc.running) collectorsProc.running = true
+    if (collectorsProc.running) return
+    // Set right before launching: a binding would still hold the old value
+    // when this runs from onOpenedChanged. null removes the variable.
+    collectorsProc.environment = { "GADGET_BATTERIES_PANEL_OPEN": opened ? "1" : null }
+    collectorsProc.running = true
   }
 
   function checkLowBattery() {
@@ -201,6 +205,9 @@ Panel {
 
   Process {
     id: collectorsProc
+    // environment is set by refreshCollectors(): GADGET_BATTERIES_PANEL_OPEN=1
+    // while the panel is open lets the AirPods collector skip its 5-minute
+    // scan cache.
     command: [root.pluginDir + "collect"]
     stdout: StdioCollector {
       waitForEnd: true
