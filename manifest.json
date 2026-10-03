@@ -4,7 +4,7 @@
   "name": "Gadget Batteries",
   "version": "1.1.0",
   "author": "69Harold69",
-  "description": "Battery of every connected gadget in one bar widget: Bluetooth and Logitech devices, USB/2.4 GHz headsets, Galaxy Buds, Fast Pair earbuds, AirPods, Xinmeng 2.4G keyboards and your own scripts.",
+  "description": "One bar widget for the battery of every connected gadget, replacing separate AirPods, Logitech and headset widgets: Bluetooth and Logitech devices, USB/2.4 GHz headsets, Galaxy Buds, Fast Pair earbuds, AirPods, Xinmeng 2.4G keyboards and your own scripts.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   "barWidget": {
     "displayName": "Gadget Batteries",
     "description": "Battery of connected mice, keyboards, headsets and earbuds",
-    "category": "System",
+    "category": "Hardware",
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {

@@ -147,11 +147,28 @@ Panel {
     persisted.fullNotified = full
   }
 
-  // The vendor app behind a row, if there is one to open.
+  // The vendor app behind a row, if there is one to open and it is installed.
   function appCommand(d) {
-    if (d.key.indexOf("buds:") === 0) return ["galaxybudsclient", "app", "--activate-window"]
-    if (/^solaar:|^upower:hidpp/.test(d.key) || /^logitech /i.test(d.name)) return ["solaar"]
-    return null
+    var command = null
+    if (d.key.indexOf("buds:") === 0) command = ["galaxybudsclient", "app", "--activate-window"]
+    else if (/^solaar:|^upower:hidpp/.test(d.key) || /^logitech /i.test(d.name)) command = ["solaar"]
+    return command && availableApps[command[0]] === true ? command : null
+  }
+
+  // Which vendor apps are installed, checked once at startup.
+  property var availableApps: ({})
+
+  Process {
+    running: true
+    command: ["sh", "-c", "for app in solaar galaxybudsclient; do command -v \"$app\" >/dev/null && echo \"$app\"; done"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var apps = {}
+        String(text).split("\n").forEach(function(name) { if (name) apps[name] = true })
+        root.availableApps = apps
+      }
+    }
   }
 
   readonly property string summaryText: {

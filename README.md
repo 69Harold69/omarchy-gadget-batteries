@@ -2,6 +2,7 @@
 
 The battery of every gadget you have connected, in one Omarchy bar widget:
 mice, keyboards, headsets, earbuds and anything you can feed it with a script.
+It replaces separate AirPods, Logitech and headset widgets with a single one.
 
 <p align="center"><img src="preview.png" alt="Gadget Batteries panel: a Logitech headset charging, an Attack Shark keyboard over its 2.4G dongle, Galaxy Buds per earbud and a Logitech mouse" width="420"></p>
 
@@ -14,7 +15,9 @@ omarchy plugin add https://github.com/69Harold69/omarchy-gadget-batteries --enab
 ```
 
 The widget lands on the right of the bar. It hides itself while no gadget
-reports a battery. Review the code before enabling it: Omarchy shell plugins
+reports a battery, so an empty bar slot right after installing is normal:
+connect a wireless gadget, or run `upower -d` to see which devices (and
+batteries) your system detects. Review the code before enabling it: Omarchy shell plugins
 run unsandboxed with your user permissions.
 
 ## What it reads
@@ -139,13 +142,18 @@ MIT. `sources/gfps-reader` is MIT, © its authors; see
 
 La batería de todos tus gadgets conectados en un solo widget de la barra de
 Omarchy: mouse, teclados, audífonos, earbuds y lo que quieras agregar con un
-script.
+script. Reemplaza los widgets separados de AirPods, Logitech y audífonos por
+uno solo.
 
 **Instalar:**
 
 ```bash
 omarchy plugin add https://github.com/69Harold69/omarchy-gadget-batteries --enable
 ```
+
+Si después de instalarlo no ves el icono, es normal: el widget se oculta
+mientras ningún gadget reporta batería. Conecta uno inalámbrico, o corre
+`upower -d` para ver qué dispositivos (y baterías) detecta tu sistema.
 
 **Qué reconoce:** dispositivos Bluetooth y receptores Logitech (UPower),
 Logitech con Solaar (incluso cargando por cable), audífonos USB/2.4 GHz con
