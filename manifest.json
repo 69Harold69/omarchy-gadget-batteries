@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.69harold69.gadget-batteries",
   "name": "Gadget Batteries",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "author": "69Harold69",
   "description": "One bar widget for the battery of every connected gadget, replacing separate AirPods, Logitech and headset widgets: Bluetooth and Logitech devices, USB/2.4 GHz headsets, Galaxy Buds, Fast Pair earbuds, AirPods, Xinmeng 2.4G keyboards and your own scripts.",
   "kinds": [

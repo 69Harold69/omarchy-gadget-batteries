@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+- **No more false "charging (estimated)":** sources that cannot tell whether a
+  gadget charges now report `charging: null` (the Xinmeng dongle, external
+  entries without the field, UPower's "unknown" state). Charging is estimated
+  only for those, never against an explicit true/false, and only for a rise
+  of 2+ points over the lowest level in the 20-minute window, so the
+  dongle's ±1 jitter is ignored.
+- `tests/collectors_test.py` no longer passes without running anything when
+  python-dbus is missing.
+
 ## 1.2.0
 
 - **AirPods:** only adverts whose model matches the connected pair (Modalias
