@@ -67,7 +67,8 @@ Panel {
       // Touch the properties so the binding tracks them.
       var _ = [d.percentage, d.state, d.isPresent, d.model]
       if (root.sysfsOnline[d.nativePath] === false) continue
-      var device = Model.fromUPower(d, UPowerDeviceType.toString(d.type), UPowerDeviceState.Charging)
+      var device = Model.fromUPower(d, UPowerDeviceType.toString(d.type), UPowerDeviceState.Charging,
+        UPowerDeviceState.Unknown)
       if (device) out.push(device)
     }
     return out

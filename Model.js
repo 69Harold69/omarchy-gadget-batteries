@@ -2,7 +2,8 @@
 
 // Pure helpers for the gadget battery widget. Every source is normalized to
 //   { key, name, kind, level (0-100), charging, detail, offline }
-// so the panel only ever renders one shape.
+// so the panel only ever renders one shape. `charging` is true or false when
+// the source knows, and null when it cannot tell (then applyTrends estimates).
 
 var KIND_ICONS = {
   mouse: "\u{F037D}",     // nf-md-mouse
@@ -53,7 +54,9 @@ function kindFromUPowerType(typeName) {
   return "other"
 }
 
-function fromUPower(device, typeName, chargingState) {
+// UPower's "unknown" state (a Logitech mouse on its charging cable) is
+// reported as null so applyTrends can estimate; every other state is known.
+function fromUPower(device, typeName, chargingState, unknownState) {
   if (!device || !device.isPresent || device.powerSupply || device.isLaptopBattery) return null
   if (IGNORED_UPOWER_TYPES.indexOf(String(typeName || "").toLowerCase()) >= 0) return null
   var level = Math.round(Math.max(0, Math.min(1, device.percentage)) * 100)
@@ -62,7 +65,7 @@ function fromUPower(device, typeName, chargingState) {
     name: device.model || typeName || "Device",
     kind: kindFromUPowerType(typeName),
     level: level,
-    charging: device.state === chargingState,
+    charging: device.state === unknownState ? null : device.state === chargingState,
     detail: ""
   }
 }
@@ -156,7 +159,8 @@ function fromExternal(raw, nowSec) {
       name: String(e.name),
       kind: EXTERNAL_KINDS[String(e.kind || "").toLowerCase()] || "other",
       level: level,
-      charging: e.charging === true,
+      // A missing or non-boolean field means the source does not know.
+      charging: typeof e.charging === "boolean" ? e.charging : null,
       detail: partsDetail(clampLevel(e.left), clampLevel(e.right), clampLevel(e["case"])),
       offline: isFinite(ts) && isFinite(ttl) && ttl > 0 && nowSec > ts + ttl
     })
@@ -214,11 +218,19 @@ function lowBatteryAlerts(devices, threshold, notified) {
   return { alerts: alerts, notified: next }
 }
 
-// Infer charging for devices that never say so (e.g. a Logitech mouse on its
-// cable reports "unknown"): a level that rose within RISE_WINDOW seconds means
-// it is charging. A drop clears it at once. `trends` is key -> {level, riseTs}
-// and is returned updated; devices come back with `chargingEstimated` set.
+// Infer charging for gadgets that cannot tell (charging === null), such as a
+// Logitech mouse on its cable (UPower "unknown") or a Xinmeng 2.4G keyboard.
+// It is never inferred against an explicit true/false. Levels from such
+// sources jitter by about 1 point, so charging is only estimated once the
+// level is MIN_RISE points above the lowest level seen within RISE_WINDOW
+// seconds. Any drop restarts the window and does not become its baseline
+// (a jitter dip like 66 -> 65 must not turn the next 67 into a 2-point
+// rise): the window starts again at the following reading. The estimate lasts RISE_WINDOW
+// seconds after the last such rise. `trends` is key -> {level, samples,
+// riseTs} (samples: [[ts, level], ...] inside the window) and is returned
+// updated; devices come back with `chargingEstimated` set.
 var RISE_WINDOW = 1200
+var MIN_RISE = 2
 
 function applyTrends(devices, trends, nowSec) {
   var next = {}
@@ -226,15 +238,25 @@ function applyTrends(devices, trends, nowSec) {
   for (var i = 0; i < devices.length; i++) {
     var d = Object.assign({}, devices[i])
     var prev = trends ? trends[d.key] : null
-    var riseTs = prev ? prev.riseTs : 0
-    if (prev && !d.offline) {
-      if (d.level > prev.level) riseTs = nowSec
-      else if (d.level < prev.level) riseTs = 0
+    var samples = prev && prev.samples ? prev.samples.slice() : []
+    var riseTs = prev ? prev.riseTs || 0 : 0
+    var level = d.offline && prev ? prev.level : d.level
+    if (!d.offline) {
+      if (prev && d.level < prev.level) {
+        samples = []
+        riseTs = 0
+      } else {
+        samples = samples.filter(function(s) { return nowSec - s[0] <= RISE_WINDOW })
+        if (samples.length === 0 || samples[samples.length - 1][1] !== d.level) samples.push([nowSec, d.level])
+        var lowest = Math.min.apply(null, samples.map(function(s) { return s[1] }))
+        var rose = !prev || d.level > prev.level
+        if (rose && d.level - lowest >= MIN_RISE) riseTs = nowSec
+      }
     }
     if (riseTs && nowSec - riseTs > RISE_WINDOW) riseTs = 0
-    d.chargingEstimated = !d.charging && !d.offline && riseTs > 0
-    if (d.chargingEstimated) d.charging = true
-    next[d.key] = { level: d.offline && prev ? prev.level : d.level, riseTs: riseTs }
+    d.chargingEstimated = d.charging === null && !d.offline && riseTs > 0
+    if (d.charging === null) d.charging = d.chargingEstimated
+    next[d.key] = { level: level, samples: samples, riseTs: riseTs }
     out.push(d)
   }
   return { devices: out, trends: next }

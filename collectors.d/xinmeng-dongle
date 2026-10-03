@@ -62,7 +62,7 @@ def main():
         "name": "M87 keyboard (2.4G)",
         "kind": "keyboard",
         "pct": level,
-        "charging": False,
+        "charging": None,  # the reply carries no charging flag we understand yet
         "ts": int(time.time()),
         "ttl": 180,
         "transport": "wireless",

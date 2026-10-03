@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 
 const source = readFileSync(new URL("../Model.js", import.meta.url), "utf8").replace(".pragma library", "")
 const M = new Function(source + "; return { fromExternal, fromBudsStatus, fromHeadsetControl, mergeDevices, " +
-  "lowBatteryAlerts, applyTrends, applyNames, languageFromLocale, tr, sameDeviceKey }")()
+  "lowBatteryAlerts, applyTrends, applyNames, languageFromLocale, tr, sameDeviceKey, fromUPower }")()
 
 // External JSON: TTL turns entries offline, parts become the detail line.
 const ext = M.fromExternal(JSON.stringify([
@@ -43,15 +43,50 @@ let alerts = M.lowBatteryAlerts([{ key: "k", level: 10 }, { key: "x", level: 3, 
 assert.deepEqual(alerts.alerts.map(d => d.key), ["k"])
 assert.equal(M.lowBatteryAlerts([{ key: "k", level: 10 }], 15, alerts.notified).alerts.length, 0)
 
-// Charging inferred from a rising level, cleared by a drop or after 20 min.
-let trends = {}
-const step = (level, now) => {
-  const r = M.applyTrends([{ key: "m", level, charging: false }], trends, now)
-  trends = r.trends
-  return r.devices[0].chargingEstimated
+// Charging is only estimated when the source cannot tell (charging null),
+// and only for a rise of 2+ points over the window's lowest level.
+const estimates = (levels, charging, step = 60) => {
+  let trends = {}
+  return levels.map((level, i) => {
+    const r = M.applyTrends([{ key: "k", level, charging }], trends, i * step)
+    trends = r.trends
+    return r.devices[0].chargingEstimated
+  })
 }
-assert.deepEqual([step(27, 0), step(28, 60), step(28, 600), step(28, 1400), step(29, 1500), step(27, 1560)],
-  [false, true, true, false, true, false])
+// +-1 jitter, as a Xinmeng dongle reports it: never charging.
+assert.deepEqual(estimates([65, 66, 65, 66, 67], null), [false, false, false, false, false])
+// A real 2-point rise: charging.
+assert.deepEqual(estimates([60, 62], null), [false, true])
+// Explicit false (or true) is never contradicted.
+assert.deepEqual(estimates([60, 62, 64, 66], false), [false, false, false, false])
+let r = M.applyTrends([{ key: "k", level: 50, charging: true }], {}, 0)
+assert.equal(r.devices[0].charging, true)
+assert.equal(r.devices[0].chargingEstimated, false)
+// Slow charging: 1 point every 5 minutes still adds up within 20 minutes.
+assert.deepEqual(estimates([40, 41, 42], null, 300), [false, false, true])
+// A drop restarts the window; the estimate expires 20 minutes after the last rise.
+assert.deepEqual(estimates([60, 62, 61, 62], null), [false, true, false, false])
+// A real charge after a drop is still caught, from the reading after the drop.
+assert.deepEqual(estimates([70, 69, 69, 70, 71], null), [false, false, false, false, true])
+let trends = {}
+const at = (level, now) => {
+  const res = M.applyTrends([{ key: "m", level, charging: null }], trends, now)
+  trends = res.trends
+  return res.devices[0].chargingEstimated
+}
+assert.deepEqual([at(27, 0), at(29, 60), at(29, 600), at(29, 1400)], [false, true, true, false])
+// Unknown charging that is not estimated shows as not charging.
+assert.equal(M.applyTrends([{ key: "k", level: 50, charging: null }], {}, 0).devices[0].charging, false)
+
+// External entries keep "don't know" as null.
+assert.deepEqual(M.fromExternal(JSON.stringify([
+  { name: "a", pct: 1, charging: true }, { name: "b", pct: 1, charging: false }, { name: "c", pct: 1 },
+]), 0).map(d => d.charging), [true, false, null])
+
+// UPower: "unknown" state means null, other states are known.
+const upower = state => M.fromUPower({ isPresent: true, percentage: 0.5, state, nativePath: "x" },
+  "Mouse", "CHARGING", "UNKNOWN").charging
+assert.deepEqual([upower("CHARGING"), upower("DISCHARGING"), upower("UNKNOWN")], [true, false, null])
 
 // Renames and translations.
 assert.equal(M.applyNames([{ name: "M87 keyboard (2.4G)" }], { "M87 keyboard (2.4G)": "My keyboard" })[0].name, "My keyboard")
