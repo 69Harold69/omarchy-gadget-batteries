@@ -40,7 +40,7 @@
       {
         "key": "lowThreshold",
         "type": "number",
-        "label": "Notify when a gadget drops to this percentage",
+        "label": "Notify when a gadget drops to this percentage (0 = never)",
         "defaultValue": 15
       },
       {

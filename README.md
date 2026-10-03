@@ -61,7 +61,7 @@ omarchy bar set io.github.69harold69.gadget-batteries <key> <value>
 |---|---|---|
 | `barIcon` | `fixed` | `lowest` shows the icon of the gadget with the least battery |
 | `showPercentage` | `false` | Show the lowest percentage next to the icon |
-| `lowThreshold` | `15` | Low-battery notification threshold |
+| `lowThreshold` | `15` | Low-battery notification threshold. `0` turns low-battery notifications off |
 | `externalPath` | `~/.cache/omarchy-accessories/external.json` | External JSON file |
 | `names` | `{}` | Rename gadgets, e.g. `--json '{"M87 keyboard (2.4G)": "Attack Shark M87 PRO V2"}'` |
 
@@ -159,6 +159,10 @@ nivel, barra y detalle por auricular; estado *cargando* (o *cargando
 (estimado)* si el % sube sin que el dispositivo lo reporte); avisos de batería
 baja y de carga completa; los gadgets desconectados desaparecen en 15 s. Los
 textos salen en español si tu sistema está en español.
+
+**Ajustes:** los mismos de [Settings](#settings). Para no recibir avisos de
+batería baja usa `lowThreshold` en `0`:
+`omarchy bar set io.github.69harold69.gadget-batteries lowThreshold 0`.
 
 **Teclado Attack Shark M87 PRO V2 por dongle:** instala la regla de la sección
 [Xinmeng 2.4G keyboards](#xinmeng-24g-keyboards-attack-shark-m87-pro-v2). Solo

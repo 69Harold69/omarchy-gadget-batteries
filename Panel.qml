@@ -27,7 +27,12 @@ Panel {
   readonly property string lang: Model.languageFromLocale(Quickshell.env("LC_ALL")
     || Quickshell.env("LC_MESSAGES") || Quickshell.env("LANG"))
   readonly property bool showPercentage: setting("showPercentage", false) === true
-  readonly property int lowThreshold: Number(setting("lowThreshold", 15)) || 15
+  // 0 turns low-battery notifications (and the low highlight) off; anything
+  // that is not a non-negative number falls back to 15.
+  readonly property int lowThreshold: {
+    var value = Number(setting("lowThreshold", 15))
+    return isFinite(value) && value >= 0 ? value : 15
+  }
   readonly property string budsStatusPath: (Quickshell.env("XDG_STATE_HOME")
     || Quickshell.env("HOME") + "/.local/state") + "/omarchy-buds/status.json"
 
@@ -116,12 +121,16 @@ Panel {
   }
 
   function checkLowBattery() {
-    var result = Model.lowBatteryAlerts(devices, lowThreshold, persisted.notified)
-    persisted.notified = result.notified
-    for (var i = 0; i < result.alerts.length; i++) {
-      var d = result.alerts[i]
-      Quickshell.execDetached([pluginDir + "notify-once", d.key,
-        Model.tr(lang, "lowTitle", d.name), Model.tr(lang, "lowBody", d.level)])
+    if (lowThreshold > 0) {
+      var result = Model.lowBatteryAlerts(devices, lowThreshold, persisted.notified)
+      persisted.notified = result.notified
+      for (var i = 0; i < result.alerts.length; i++) {
+        var d = result.alerts[i]
+        Quickshell.execDetached([pluginDir + "notify-once", d.key,
+          Model.tr(lang, "lowTitle", d.name), Model.tr(lang, "lowBody", d.level)])
+      }
+    } else {
+      persisted.notified = {}
     }
 
     // Once per charge: notify at 100%, re-arm when it stops charging or drops.
@@ -290,8 +299,8 @@ Panel {
       return root.showPercentage && !vertical ? icon + " " + root.lowest.level + "%" : icon
     }
     slotSize: Style.bar.iconSlot * (root.showPercentage && !vertical ? 2.4 : 1)
-    active: root.lowest !== null && !root.lowest.offline && !root.lowest.charging
-      && root.lowest.level <= root.lowThreshold
+    active: root.lowThreshold > 0 && root.lowest !== null && !root.lowest.offline
+      && !root.lowest.charging && root.lowest.level <= root.lowThreshold
     tooltipText: root.opened ? "" : root.summaryText
     onPressed: function(b) { root.toggle() }
   }
@@ -333,8 +342,8 @@ Panel {
           delegate: Item {
             id: row
             required property var modelData
-            readonly property bool low: !modelData.offline && !modelData.charging
-              && modelData.level <= root.lowThreshold
+            readonly property bool low: root.lowThreshold > 0 && !modelData.offline
+              && !modelData.charging && modelData.level <= root.lowThreshold
             width: column.width
             implicitHeight: rowColumn.implicitHeight
             opacity: modelData.offline ? 0.45 : 1
