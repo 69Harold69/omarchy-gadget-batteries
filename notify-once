@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""notify-once <key> <title> <body>: one low-battery notification per gadget,
-however many bars (one per monitor) ask for it within WINDOW seconds."""
+"""notify-once <key> <title> <body> [urgency]: one notification per gadget and
+event, however many bars (one per monitor) ask for it within WINDOW seconds.
+urgency is low, normal or critical (default critical, for low battery)."""
 import fcntl
 import json
 import os
@@ -12,9 +13,12 @@ WINDOW = 600
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "omarchy-gadget-batteries")
 STATE = os.path.join(CACHE, "notified.json")
 
-if len(sys.argv) != 4:
+if len(sys.argv) not in (4, 5):
     sys.exit(2)
-key, title, body = sys.argv[1:]
+key, title, body = sys.argv[1:4]
+urgency = sys.argv[4] if len(sys.argv) == 5 else "critical"
+if urgency not in ("low", "normal", "critical"):
+    sys.exit(2)
 os.makedirs(CACHE, exist_ok=True)
 with open(os.path.join(CACHE, "notified.lock"), "w") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
@@ -30,4 +34,4 @@ with open(os.path.join(CACHE, "notified.lock"), "w") as lock:
     sent[key] = now
     with open(STATE, "w") as handle:
         json.dump(sent, handle)
-subprocess.run(["notify-send", "-u", "critical", "-a", "Gadget Batteries", title, body])
+subprocess.run(["notify-send", "-u", urgency, "-a", "Gadget Batteries", title, body])

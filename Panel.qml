@@ -132,7 +132,7 @@ Panel {
       var wasFull = persisted.fullNotified[g.key] === true
       if (g.charging && g.level >= 100 && !wasFull)
         Quickshell.execDetached([pluginDir + "notify-once", "full:" + g.key,
-          Model.tr(lang, "fullTitle", g.name), Model.tr(lang, "fullBody")])
+          Model.tr(lang, "fullTitle", g.name), Model.tr(lang, "fullBody"), "normal"])
       if ((g.charging || wasFull) && g.level >= 95) full[g.key] = g.level >= 100 || wasFull
     }
     persisted.fullNotified = full
