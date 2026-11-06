@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Battery of Razer mice through their USB / 2.4G HID feature reports.
+
+Talks the same Chroma report used by OpenRazer (class 0x07, get-battery 0x80,
+get-charging 0x84) over hidraw feature ioctls — no OpenRazer daemon or DKMS
+module needed. Currently matched product IDs:
+
+  1532:0088  Basilisk Ultimate (receiver)
+  1532:0086  Basilisk Ultimate (wired)
+
+Needs setup/70-gadgets-razer.rules so the user can open the mouse interface
+(USB interface 00). Prints a JSON array in the gadgets external format.
+"""
+import array
+import fcntl
+import json
+import os
+import sys
+import time
+
+# Product ID -> (display name, transaction id). Transaction 0x1f is what
+# OpenRazer uses for Basilisk Ultimate and most recent wireless mice.
+DEVICES = {
+    "0088": ("Razer Basilisk Ultimate", 0x1F),
+    "0086": ("Razer Basilisk Ultimate", 0x1F),
+}
+
+# linux/hidraw.h: HIDIOCSFEATURE / HIDIOCGFEATURE
+_IOC_WRITE, _IOC_READ = 1, 2
+
+
+def _ioc(direction, type_char, nr, size):
+    return (direction << 30) | (ord(type_char) << 8) | nr | (size << 16)
+
+
+def HIDIOCSFEATURE(length):
+    return _ioc(_IOC_WRITE | _IOC_READ, "H", 0x06, length)
+
+
+def HIDIOCGFEATURE(length):
+    return _ioc(_IOC_WRITE | _IOC_READ, "H", 0x07, length)
+
+
+def crc(report):
+    value = 0
+    for index in range(2, 88):
+        value ^= report[index]
+    return value
+
+
+def build_report(command_id, transaction_id):
+    report = bytearray(90)
+    report[1] = transaction_id
+    report[5] = 0x02  # data size
+    report[6] = 0x07  # misc command class
+    report[7] = command_id
+    report[88] = crc(report)
+    return report
+
+
+def mouse_nodes():
+    """Yield (hidraw path, product_id) for matched Razer mouse interfaces."""
+    try:
+        names = os.listdir("/sys/class/hidraw")
+    except OSError:
+        return
+    for name in names:
+        dev = os.path.realpath("/sys/class/hidraw/%s/device" % name)
+        if "0003:1532:" not in dev:
+            continue
+        product = None
+        for pid in DEVICES:
+            if ("0003:1532:%s" % pid.upper()) in dev:
+                product = pid
+                break
+        if not product:
+            continue
+        iface = os.path.join(dev, "..", "bInterfaceNumber")
+        if not os.path.exists(iface):
+            continue
+        with open(iface) as handle:
+            if handle.read().strip() != "00":
+                continue
+        yield "/dev/" + name, product
+
+
+def transact(fd, command_id, transaction_id):
+    request = build_report(command_id, transaction_id)
+    buf = array.array("B", [0] + list(request))  # report id 0
+    fcntl.ioctl(fd, HIDIOCSFEATURE(len(buf)), buf, True)
+    time.sleep(0.05)
+    reply = array.array("B", [0] + [0] * 90)
+    fcntl.ioctl(fd, HIDIOCGFEATURE(len(reply)), reply, True)
+    data = bytes(reply[1:])
+    if data[0] != 0x02:  # RAZER_CMD_SUCCESSFUL
+        return None
+    return data
+
+
+def read_device(node, product):
+    name, txn = DEVICES[product]
+    fd = os.open(node, os.O_RDWR)
+    try:
+        battery = transact(fd, 0x80, txn)
+        if battery is None:
+            return None
+        raw = battery[9]
+        level = int(round(raw * 100 / 255.0))
+        level = max(0, min(100, level))
+        charging = False
+        status = transact(fd, 0x84, txn)
+        if status is not None:
+            charging = bool(status[9])
+        return {
+            "id": "razer:1532:%s" % product,
+            "name": name,
+            "kind": "mouse",
+            "pct": level,
+            "charging": charging,
+            "ts": int(time.time()),
+            "ttl": 180,
+            "transport": "wireless" if product == "0088" else "usb",
+        }
+    finally:
+        os.close(fd)
+
+
+def main():
+    entries = []
+    seen = set()
+    for node, product in mouse_nodes():
+        # Prefer a single entry when both receiver and wired show up.
+        key = DEVICES[product][0]
+        if key in seen:
+            continue
+        try:
+            entry = read_device(node, product)
+        except OSError:
+            continue
+        if entry:
+            entries.append(entry)
+            seen.add(key)
+    return entries
+
+
+if __name__ == "__main__":
+    sys.stdout.write(json.dumps(main()) + "\n")

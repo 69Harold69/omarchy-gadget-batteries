@@ -20,6 +20,8 @@ def load(name, filename):
 
 airpods = load("airpods", "airpods")
 solaar = load("solaar", "logitech-solaar")
+compx = load("compx", "compx-dongle")
+razer = load("razer", "razer-hid")
 
 SOLAAR_SHOW = """solaar version 1.1.20
 
@@ -166,6 +168,55 @@ class SolaarTest(unittest.TestCase):
             ("Logitech G502 X PLUS", "mouse", 44, True),
             ("Logitech G522 LIGHTSPEED", "headset", 59, False),
         ])
+
+
+class CompxTest(unittest.TestCase):
+    def test_request_checksum(self):
+        self.assertEqual(compx.REQUEST[0], 0x13)
+        self.assertEqual(compx.REQUEST[1], 0x4A)
+        self.assertEqual(compx.checksum(compx.REQUEST[:-1]), compx.REQUEST[-1])
+
+    def test_decode_on_battery(self):
+        # Captured 97% on battery (Device-Battery-Info / sanshoku).
+        data = bytes.fromhex("134A0100026101000000000000000000000000C2")
+        self.assertEqual(compx.decode(data), (97, False))
+
+    def test_decode_cable_in(self):
+        data = bytes.fromhex("134A0100026410000000000000000000000000D4")
+        self.assertEqual(compx.decode(data), (None, True))
+
+    def test_decode_measured_100(self):
+        data = bytes.fromhex("134A0100026401000000000000000000000000C5")
+        self.assertEqual(compx.decode(data), (100, False))
+
+    def test_decode_rejects_status_frame_and_bad_checksum(self):
+        status = bytearray.fromhex("134A0100026401000000000000000000000000C5")
+        status[1] = 0x0A
+        self.assertIsNone(compx.decode(bytes(status)))
+        bad = bytearray.fromhex("134A0100026401000000000000000000000000C5")
+        bad[-1] ^= 0xFF
+        self.assertIsNone(compx.decode(bytes(bad)))
+
+
+class RazerTest(unittest.TestCase):
+    def test_battery_report_layout(self):
+        report = razer.build_report(0x80, 0x1F)
+        self.assertEqual(len(report), 90)
+        self.assertEqual(report[1], 0x1F)
+        self.assertEqual(report[5], 0x02)
+        self.assertEqual(report[6], 0x07)
+        self.assertEqual(report[7], 0x80)
+        self.assertEqual(report[88], razer.crc(report))
+
+    def test_crc_matches_openrazer(self):
+        report = bytearray(90)
+        report[1] = 0x1F
+        report[5] = 0x02
+        report[6] = 0x07
+        report[7] = 0x80
+        # XOR of bytes [2..87]; with only those set: 0x1F is at [1] (skipped),
+        # so crc is 0x02 ^ 0x07 ^ 0x80.
+        self.assertEqual(razer.crc(report), 0x02 ^ 0x07 ^ 0x80)
 
 
 if __name__ == "__main__":
