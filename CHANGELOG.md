@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.0
+
+- **Razer Basilisk Ultimate:** battery and charging state over the 2.4G
+  receiver (`1532:0088`) or the charging cable (`1532:0086`), via the same
+  HID feature reports OpenRazer uses — no OpenRazer daemon required. Needs
+  `setup/70-gadgets-razer.rules`.
+- **Compx 2.4G keyboards:** Redragon STAR BLADE K707 PRO, AULA F75 and other
+  boards on the `3554:fa09` receiver. Needs `setup/70-gadgets-compx-dongle.rules`.
+  Rename the generic "Keyboard (2.4G)" entry with the `names` setting.
+
 ## 1.2.1
 
 - **No more false "charging (estimated)":** sources that cannot tell whether a

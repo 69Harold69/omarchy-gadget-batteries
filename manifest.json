@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "io.github.69harold69.gadget-batteries",
   "name": "Gadget Batteries",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "author": "69Harold69",
-  "description": "One bar widget for the battery of every connected gadget, replacing separate AirPods, Logitech and headset widgets: Bluetooth and Logitech devices, USB/2.4 GHz headsets, Galaxy Buds, Fast Pair earbuds, AirPods, Xinmeng 2.4G keyboards and your own scripts.",
+  "description": "One bar widget for the battery of every connected gadget, replacing separate AirPods, Logitech and headset widgets: Bluetooth and Logitech devices, USB/2.4 GHz headsets, Galaxy Buds, Fast Pair earbuds, AirPods, Xinmeng and Compx 2.4G keyboards, Razer mice and your own scripts.",
   "kinds": [
     "bar-widget"
   ],
@@ -58,5 +58,5 @@
     ]
   },
   "license": "MIT",
-  "homepage": "https://github.com/69Harold69/omarchy-gadget-batteries"
+  "homepage": "https://github.com/xii69/omarchy-gadget-batteries"
 }

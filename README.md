@@ -11,7 +11,7 @@ It replaces separate AirPods, Logitech and headset widgets with a single one.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/69Harold69/omarchy-gadget-batteries --enable
+omarchy plugin add https://github.com/xii69/omarchy-gadget-batteries --enable
 ```
 
 The widget lands on the right of the bar. It hides itself while no gadget
@@ -31,6 +31,8 @@ run unsandboxed with your user permissions.
 | Google Fast Pair | Per-earbud battery of Sony, JBL, Jabra, Nothing, Soundcore, Pixel Buds and other Fast Pair earbuds | `python-dbus`, `python-gobject` (ship with Omarchy) |
 | Apple BLE adverts | AirPods and Beats, per pod and case. Only adverts whose model matches your connected pair; scans 6 s every 5 minutes (right away while the panel is open) | `python-dbus` |
 | Xinmeng 2.4G dongle | Keyboards made by Xinmeng on the `0c45:fefe` dongle: Attack Shark M87 PRO V2, M87 Lite, C87 | the udev rule below |
+| Compx 2.4G dongle | Keyboards on the `3554:fa09` receiver: Redragon STAR BLADE K707 PRO, AULA F75 / F75 Pro | the udev rule below |
+| Razer HID | Razer Basilisk Ultimate (receiver `1532:0088`, wired `1532:0086`) | the udev rule below |
 | Your own JSON / scripts | anything | see [Add your own gadgets](#add-your-own-gadgets) |
 
 Install the optional tools you need with `omarchy pkg add solaar headsetcontrol`.
@@ -86,6 +88,34 @@ commands `0x0f` and `0x1f`, which change the keyboard's configuration; this
 plugin never sends them. In Bluetooth mode the keyboard shows up through
 UPower without the rule.
 
+## Compx 2.4G keyboards (Redragon STAR BLADE K707 PRO)
+
+Same idea on the Compx receiver `3554:fa09`: only USB interface 01 (usage
+page `0xFF02`) is opened; the keyboard interface stays root-only. Wired mode
+(`258a:010c`) has no battery command — switch the board to 2.4G.
+
+```bash
+sudo cp ~/.config/omarchy/plugins/io.github.69harold69.gadget-batteries/setup/70-gadgets-compx-dongle.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+The panel lists it as "Keyboard (2.4G)". Give it your board's name:
+
+```bash
+omarchy bar set io.github.69harold69.gadget-batteries names '{"Keyboard (2.4G)": "Redragon STAR BLADE K707 PRO"}' --json
+```
+
+## Razer Basilisk Ultimate
+
+Opens only the mouse control interface (USB interface 00) on the receiver
+`1532:0088` or the wired mouse `1532:0086`. No OpenRazer daemon or DKMS
+module is required.
+
+```bash
+sudo cp ~/.config/omarchy/plugins/io.github.69harold69.gadget-batteries/setup/70-gadgets-razer.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+```
+
 ## Add your own gadgets
 
 Write a JSON array to `~/.cache/omarchy-accessories/external.json` (watched,
@@ -113,7 +143,9 @@ so collectors work with both.
 ```bash
 omarchy plugin remove io.github.69harold69.gadget-batteries
 rm -rf ~/.cache/omarchy-gadget-batteries ~/.config/omarchy/gadget-batteries
-sudo rm -f /etc/udev/rules.d/70-gadgets-xinmeng-dongle.rules   # if you installed it
+sudo rm -f /etc/udev/rules.d/70-gadgets-xinmeng-dongle.rules \
+           /etc/udev/rules.d/70-gadgets-compx-dongle.rules \
+           /etc/udev/rules.d/70-gadgets-razer.rules   # if you installed them
 ```
 
 ## How it works
@@ -122,7 +154,7 @@ sudo rm -f /etc/udev/rules.d/70-gadgets-xinmeng-dongle.rules   # if you installe
 |---|---|
 | `Panel.qml`, `Model.js` | Bar widget, panel and the pure logic (merging, charging inference, notifications) |
 | `collect` | Runs every collector once a minute behind a lock, shared by all bars |
-| `collectors.d/` | `logitech-solaar`, `airpods`, `xinmeng-dongle` |
+| `collectors.d/` | `logitech-solaar`, `airpods`, `xinmeng-dongle`, `compx-dongle`, `razer-hid` |
 | `sources/gfps-daemon` | Single-instance wrapper that follows connected audio devices with `gfps-reader` |
 | `sources/gfps-reader` | Google Fast Pair message-stream reader from [Omaphones](https://github.com/ncr/omarchy-headphones) (MIT) |
 | `notify-once` | De-duplicates notifications across bars |
@@ -148,7 +180,7 @@ uno solo.
 **Instalar:**
 
 ```bash
-omarchy plugin add https://github.com/69Harold69/omarchy-gadget-batteries --enable
+omarchy plugin add https://github.com/xii69/omarchy-gadget-batteries --enable
 ```
 
 Si después de instalarlo no ves el icono, es normal: el widget se oculta
@@ -158,8 +190,9 @@ mientras ningún gadget reporta batería. Conecta uno inalámbrico, o corre
 **Qué reconoce:** dispositivos Bluetooth y receptores Logitech (UPower),
 Logitech con Solaar (incluso cargando por cable), audífonos USB/2.4 GHz con
 HeadsetControl, Galaxy Buds por auricular, earbuds con Google Fast Pair (Sony,
-JBL, Jabra, Nothing, Soundcore, Pixel Buds...), AirPods/Beats y teclados
-Xinmeng por su dongle 2.4G (Attack Shark M87 PRO V2). Herramientas opcionales:
+JBL, Jabra, Nothing, Soundcore, Pixel Buds...), AirPods/Beats, teclados
+Xinmeng y Compx por su dongle 2.4G (Attack Shark M87 PRO V2, Redragon STAR
+BLADE K707 PRO) y el Razer Basilisk Ultimate. Herramientas opcionales:
 `omarchy pkg add solaar headsetcontrol`.
 
 **Qué hace:** icono fijo en la barra con resumen al pasar el mouse; panel con
@@ -178,7 +211,7 @@ abre la interfaz de la batería, nunca las que transmiten lo que tecleas. Para
 ponerle tu nombre:
 
 ```bash
-omarchy bar set io.github.69harold69.gadget-batteries names --json '{"M87 keyboard (2.4G)": "Attack Shark M87 PRO V2"}'
+omarchy bar set io.github.69harold69.gadget-batteries names '{"M87 keyboard (2.4G)": "Attack Shark M87 PRO V2"}' --json
 ```
 
 **Agregar tus propios gadgets:** escribe un JSON en

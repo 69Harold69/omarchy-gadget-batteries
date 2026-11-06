@@ -1,0 +1,6 @@
+# Gadget Batteries: let the logged-in user query the battery of Compx 2.4G
+# keyboards (Redragon STAR BLADE K707 PRO, AULA F75, ...) through their
+# receiver 3554:fa09. Only USB interface 01 (vendor usage page 0xFF02) is
+# opened up; interface 00 carries keystrokes and stays root-only.
+SUBSYSTEM=="hidraw", KERNELS=="0003:3554:FA09.*", ENV{GADGETS_COMPX}="1"
+SUBSYSTEM=="hidraw", ENV{GADGETS_COMPX}=="1", ATTRS{bInterfaceNumber}=="01", TAG+="uaccess"

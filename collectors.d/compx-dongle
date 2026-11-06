@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Battery of Compx 2.4G keyboards through their receiver 3554:fa09.
+
+Covers Redragon STAR BLADE K707 PRO, AULA F75 / F75 Pro and other boards that
+share the Compx ("CX 2.4G Wireless Receiver") dongle. Wired mode enumerates as
+a different device (258a:010c) and has no published battery command.
+
+Protocol (MIT, Device-Battery-Info / womier-l65-linux / sanshoku): an output
+report of 20 bytes on usage page 0xFF02 — report 0x13, command 0x4A, zeros,
+checksum (sum of the first 19 bytes) — is answered with the same report id
+whose command (top bit masked) is 0x4A. Byte 5 is the level 1–100; byte 6 is
+0x01 on battery or 0x10 on the cable (level pinned at 100, treated as charging
+with no trustworthy percentage).
+
+Needs setup/70-gadgets-compx-dongle.rules so the user can open interface 01.
+Prints a JSON array in the gadgets external format.
+"""
+import json
+import os
+import select
+import sys
+import time
+
+USB_ID = "0003:3554:FA09"
+REQUEST = bytes([0x13, 0x4A] + [0x00] * 17 + [0x5D])  # 0x5D == sum(req[:-1]) & 0xFF
+
+
+def dongle_node():
+    for name in os.listdir("/sys/class/hidraw"):
+        dev = os.path.realpath("/sys/class/hidraw/%s/device" % name)
+        iface = os.path.join(dev, "..", "bInterfaceNumber")
+        if USB_ID in dev and os.path.exists(iface):
+            with open(iface) as handle:
+                if handle.read().strip() == "01":
+                    return "/dev/" + name
+    return None
+
+
+def checksum(data):
+    return sum(data) & 0xFF
+
+
+def decode(data):
+    """Return (level_or_None, charging_or_None) for a valid 0x4A reply."""
+    if len(data) < 20 or data[0] != 0x13 or (data[1] & 0x7F) != 0x4A:
+        return None
+    if checksum(data[:19]) != data[19]:
+        return None
+    level, state = data[5], data[6]
+    if state == 0x10:
+        # Cable in: firmware pins the level at 100; report charging, no %.
+        return None, True
+    if state == 0x01 and 1 <= level <= 100:
+        return level, False
+    return None
+
+
+def read_battery(node):
+    fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        for attempt in range(2):
+            os.write(fd, REQUEST)
+            end = time.time() + 1.0
+            while time.time() < end:
+                if not select.select([fd], [], [], 0.25)[0]:
+                    continue
+                data = os.read(fd, 64)
+                decoded = decode(data)
+                if decoded is not None:
+                    return decoded
+            if attempt == 0:
+                time.sleep(0.2)
+    finally:
+        os.close(fd)
+    return None, None
+
+
+def main():
+    node = dongle_node()
+    if not node:
+        return []
+    try:
+        level, charging = read_battery(node)
+    except OSError:
+        return []
+    if level is None and charging is not True:
+        return []
+    entry = {
+        "id": "compx:3554:fa09",
+        "name": "Keyboard (2.4G)",
+        "kind": "keyboard",
+        "charging": charging,
+        "ts": int(time.time()),
+        "ttl": 180,
+        "transport": "wireless",
+    }
+    if level is not None:
+        entry["pct"] = level
+    elif charging:
+        # Cable-in reports no trustworthy percentage; keep the row visible.
+        entry["pct"] = 100
+        entry["charging"] = True
+    return [entry]
+
+
+if __name__ == "__main__":
+    sys.stdout.write(json.dumps(main()) + "\n")

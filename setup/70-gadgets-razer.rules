@@ -1,0 +1,7 @@
+# Gadget Batteries: let the logged-in user query the battery of Razer mice
+# (Basilisk Ultimate receiver 1532:0088 / wired 1532:0086) through their
+# mouse control interface. Only USB interface 00 is opened up; the other
+# interfaces stay root-only.
+SUBSYSTEM=="hidraw", KERNELS=="0003:1532:0088.*", ENV{GADGETS_RAZER}="1"
+SUBSYSTEM=="hidraw", KERNELS=="0003:1532:0086.*", ENV{GADGETS_RAZER}="1"
+SUBSYSTEM=="hidraw", ENV{GADGETS_RAZER}=="1", ATTRS{bInterfaceNumber}=="00", TAG+="uaccess"
