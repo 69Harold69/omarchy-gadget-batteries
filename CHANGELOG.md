@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Every gadget in the bar:** `barIcon` `all` draws one icon per gadget in
+  reach, lowest battery first, each with its percentage when `showPercentage`
+  is on. Hover and click work as before, on any of the icons.
+- **Readable bar percentage:** drawn as the bar label next to the icon instead
+  of inside the icon box, where it was shrunk to icon size.
+
 ## 1.2.1
 
 - **No more false "charging (estimated)":** sources that cannot tell whether a
