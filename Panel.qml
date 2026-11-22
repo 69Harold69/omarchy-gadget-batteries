@@ -312,10 +312,12 @@ Panel {
       if (!root.lowest) return ""
       // A fixed icon keeps the widget recognisable; "lowest" follows the
       // gadget with the least battery instead.
-      var icon = root.setting("barIcon", "fixed") === "lowest"
+      return root.setting("barIcon", "fixed") === "lowest"
         ? Model.kindIcon(root.lowest.kind) : Model.kindIcon("other")
-      return root.showPercentage && !vertical ? icon + " " + root.lowest.level + "%" : icon
     }
+    // The percentage goes in the bar label: as part of `text` it would be
+    // fitted into the icon box and drawn at icon size.
+    labelText: root.showPercentage && !vertical && root.lowest ? root.lowest.level + "%" : ""
     slotSize: Style.bar.iconSlot * (root.showPercentage && !vertical ? 2.4 : 1)
     active: root.lowThreshold > 0 && root.lowest !== null && !root.lowest.offline
       && !root.lowest.charging && root.lowest.level <= root.lowThreshold
