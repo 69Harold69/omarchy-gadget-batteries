@@ -28,13 +28,13 @@
       {
         "key": "barIcon",
         "type": "string",
-        "label": "Bar icon: fixed, or lowest (icon of the gadget with the least battery)",
+        "label": "Bar icon: fixed, lowest (icon of the gadget with the least battery) or all (one icon per gadget)",
         "defaultValue": "fixed"
       },
       {
         "key": "showPercentage",
         "type": "boolean",
-        "label": "Show the lowest battery percentage in the bar",
+        "label": "Show the battery percentage next to the bar icon",
         "defaultValue": false
       },
       {

@@ -82,6 +82,14 @@ Panel {
     for (var i = 0; i < devices.length; i++) if (!devices[i].offline) return devices[i]
     return hasDevices ? devices[0] : null
   }
+  // "fixed" and "lowest" draw one bar icon; "all" draws one per gadget in
+  // reach, lowest battery first (devices is already in that order).
+  readonly property string barIcon: String(setting("barIcon", "fixed"))
+  readonly property var barDevices: {
+    if (barIcon !== "all") return lowest ? [lowest] : []
+    var online = devices.filter(function(d) { return !d.offline })
+    return online.length ? online : (lowest ? [lowest] : [])
+  }
 
   PersistentProperties {
     id: persisted
@@ -105,8 +113,8 @@ Panel {
   onHasDevicesChanged: if (!hasDevices) close()
 
   visible: hasDevices
-  implicitWidth: hasDevices ? button.implicitWidth : 0
-  implicitHeight: hasDevices ? button.implicitHeight : 0
+  implicitWidth: hasDevices ? buttons.implicitWidth : 0
+  implicitHeight: hasDevices ? buttons.implicitHeight : 0
 
   function refreshHeadsets() {
     if (!headsetProc.running) headsetProc.running = true
@@ -304,28 +312,35 @@ Panel {
     onLoadFailed: root.budsDevices = []
   }
 
-  BarIconButton {
-    id: button
-    anchors.fill: parent
-    bar: root.bar
-    text: {
-      if (!root.lowest) return ""
-      // A fixed icon keeps the widget recognisable; "lowest" follows the
-      // gadget with the least battery instead.
-      var icon = root.setting("barIcon", "fixed") === "lowest"
-        ? Model.kindIcon(root.lowest.kind) : Model.kindIcon("other")
-      return root.showPercentage && !vertical ? icon + " " + root.lowest.level + "%" : icon
+  Grid {
+    id: buttons
+    anchors.centerIn: parent
+    columns: root.bar && root.bar.vertical ? 1 : Math.max(1, root.barDevices.length)
+
+    Repeater {
+      model: root.barDevices
+
+      BarIconButton {
+        required property var modelData
+        bar: root.bar
+        // A fixed icon keeps the widget recognisable; "lowest" and "all"
+        // show the kind of each gadget instead.
+        text: Model.kindIcon(root.barIcon === "fixed" ? "other" : modelData.kind)
+        // The percentage goes in the bar label: as part of `text` it would be
+        // fitted into the icon box and drawn at icon size.
+        labelText: root.showPercentage && !vertical ? modelData.level + "%" : ""
+        slotSize: Style.bar.iconSlot * (root.showPercentage && !vertical ? 2.4 : 1)
+        active: root.lowThreshold > 0 && !modelData.offline
+          && !modelData.charging && modelData.level <= root.lowThreshold
+        tooltipText: root.opened ? "" : root.summaryText
+        onPressed: function(b) { root.toggle() }
+      }
     }
-    slotSize: Style.bar.iconSlot * (root.showPercentage && !vertical ? 2.4 : 1)
-    active: root.lowThreshold > 0 && root.lowest !== null && !root.lowest.offline
-      && !root.lowest.charging && root.lowest.level <= root.lowThreshold
-    tooltipText: root.opened ? "" : root.summaryText
-    onPressed: function(b) { root.toggle() }
   }
 
   KeyboardPanel {
     id: panel
-    anchorItem: button
+    anchorItem: buttons
     owner: root
     bar: root.bar
     open: root.opened && root.hasDevices

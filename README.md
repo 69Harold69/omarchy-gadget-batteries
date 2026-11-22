@@ -62,8 +62,8 @@ omarchy bar set io.github.69harold69.gadget-batteries <key> <value>
 
 | Key | Default | Meaning |
 |---|---|---|
-| `barIcon` | `fixed` | `lowest` shows the icon of the gadget with the least battery |
-| `showPercentage` | `false` | Show the lowest percentage next to the icon |
+| `barIcon` | `fixed` | `lowest` shows the icon of the gadget with the least battery; `all` shows one icon per gadget in reach, lowest battery first |
+| `showPercentage` | `false` | Show the percentage next to the icon (next to each icon with `all`) |
 | `lowThreshold` | `15` | Low-battery notification threshold. `0` turns low-battery notifications off |
 | `externalPath` | `~/.cache/omarchy-accessories/external.json` | External JSON file |
 | `names` | `{}` | Rename gadgets, e.g. `--json '{"M87 keyboard (2.4G)": "Attack Shark M87 PRO V2"}'` |
