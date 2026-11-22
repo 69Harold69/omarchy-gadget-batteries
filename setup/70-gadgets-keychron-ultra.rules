@@ -1,0 +1,10 @@
+# Gadget Batteries: let the logged-in user query the battery of Keychron Ultra 8K
+# keyboards. Only the raw HID interface (usage page 0xFF60) is opened up; the
+# interfaces that carry keystrokes and firmware updates stay root-only.
+#   Ultra-Link 8K receiver 3434:d028, interface 02 (every Ultra 8K model)
+SUBSYSTEM=="hidraw", KERNELS=="0003:3434:D028.*", ENV{GADGETS_KC_RECEIVER}="1"
+SUBSYSTEM=="hidraw", ENV{GADGETS_KC_RECEIVER}=="1", ATTRS{bInterfaceNumber}=="02", TAG+="uaccess"
+#   On the USB cable each model has its own product id. V3 Ultra 8K ISO (0c31),
+#   interface 01; copy these two lines with your model's id (lsusb) to add it.
+SUBSYSTEM=="hidraw", KERNELS=="0003:3434:0C31.*", ENV{GADGETS_KC_CABLE}="1"
+SUBSYSTEM=="hidraw", ENV{GADGETS_KC_CABLE}=="1", ATTRS{bInterfaceNumber}=="01", TAG+="uaccess"

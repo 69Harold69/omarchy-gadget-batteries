@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Pulsar CrazyLight mice:** new `pulsar-dongle` collector reads the battery
+  and charging-cable state through the 8K Dongle Gen.2 (`3710:5406`), with
+  `setup/70-gadgets-pulsar-dongle.rules`.
+- **Keychron Ultra 8K keyboards:** new `keychron-ultra` collector asks the
+  raw HID interface for `A7 31` on the Ultra-Link 8K receiver or the cable,
+  with `setup/70-gadgets-keychron-ultra.rules`. Needs firmware that implements
+  the command (stock firmware does not; nothing is listed then).
+
 ## 1.2.1
 
 - **No more false "charging (estimated)":** sources that cannot tell whether a

@@ -31,6 +31,8 @@ run unsandboxed with your user permissions.
 | Google Fast Pair | Per-earbud battery of Sony, JBL, Jabra, Nothing, Soundcore, Pixel Buds and other Fast Pair earbuds | `python-dbus`, `python-gobject` (ship with Omarchy) |
 | Apple BLE adverts | AirPods and Beats, per pod and case. Only adverts whose model matches your connected pair; scans 6 s every 5 minutes (right away while the panel is open) | `python-dbus` |
 | Xinmeng 2.4G dongle | Keyboards made by Xinmeng on the `0c45:fefe` dongle: Attack Shark M87 PRO V2, M87 Lite, C87 | the udev rule below |
+| Pulsar 8K Dongle Gen.2 | Pulsar CrazyLight mice (X2, X3 LHD, ... CrazyLight) on the `3710:5406` dongle | the udev rule below |
+| Keychron raw HID | Keychron Ultra 8K keyboards on the Ultra-Link 8K receiver or the cable, with firmware that answers `A7 31` | the udev rule below |
 | Your own JSON / scripts | anything | see [Add your own gadgets](#add-your-own-gadgets) |
 
 Install the optional tools you need with `omarchy pkg add solaar headsetcontrol`.
@@ -86,6 +88,45 @@ commands `0x0f` and `0x1f`, which change the keyboard's configuration; this
 plugin never sends them. In Bluetooth mode the keyboard shows up through
 UPower without the rule.
 
+## Pulsar CrazyLight mice (8K Dongle Gen.2)
+
+The battery query goes to the dongle's configuration interface (USB interface
+01), which Linux keeps root-only. This rule opens only that interface to the
+logged-in user. It also carries the mouse's movement and media keys; the
+dongle's keyboard interface (02) stays root-only:
+
+```bash
+sudo cp ~/.config/omarchy/plugins/io.github.69harold69.gadget-batteries/setup/70-gadgets-pulsar-dongle.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+```
+
+Protocol (as documented by
+[pulsar-mouse-linux](https://github.com/packerlschupfer/pulsar-mouse-linux)):
+17-byte reports with report ID `0x08` and checksum `0x55 - sum`; command `0x04`
+is answered with the percentage, a charging-cable flag and the voltage. The
+plugin sends only that read; settings commands are never sent.
+
+## Keychron Ultra 8K keyboards
+
+These keyboards (ZMK firmware) report their battery to the computer only over
+Bluetooth, where UPower shows it without any setup. On the Ultra-Link 8K
+receiver and the cable they need firmware that answers `A7 31` on the raw HID
+interface with `A7 31 <percent> <charging>`. Stock firmware does not (the
+keyboard echoes the request without a level, and nothing is listed); the
+command is proposed for the official firmware in
+[Keychron/zmk#15](https://github.com/Keychron/zmk/pull/15).
+
+The rule opens only the raw HID interface (usage page `0xFF60`) of the receiver
+(`3434:d028`, shared by every Ultra 8K model) and, on the cable, of the V3 Ultra
+8K ISO (`3434:0c31`). For another model on the cable, copy its two lines with
+your product id from `lsusb`. Keystrokes and firmware updates go through other
+interfaces, which stay root-only:
+
+```bash
+sudo cp ~/.config/omarchy/plugins/io.github.69harold69.gadget-batteries/setup/70-gadgets-keychron-ultra.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger --subsystem-match=hidraw
+```
+
 ## Add your own gadgets
 
 Write a JSON array to `~/.cache/omarchy-accessories/external.json` (watched,
@@ -114,6 +155,8 @@ so collectors work with both.
 omarchy plugin remove io.github.69harold69.gadget-batteries
 rm -rf ~/.cache/omarchy-gadget-batteries ~/.config/omarchy/gadget-batteries
 sudo rm -f /etc/udev/rules.d/70-gadgets-xinmeng-dongle.rules   # if you installed it
+sudo rm -f /etc/udev/rules.d/70-gadgets-pulsar-dongle.rules     # if you installed it
+sudo rm -f /etc/udev/rules.d/70-gadgets-keychron-ultra.rules    # if you installed it
 ```
 
 ## How it works
@@ -122,7 +165,7 @@ sudo rm -f /etc/udev/rules.d/70-gadgets-xinmeng-dongle.rules   # if you installe
 |---|---|
 | `Panel.qml`, `Model.js` | Bar widget, panel and the pure logic (merging, charging inference, notifications) |
 | `collect` | Runs every collector once a minute behind a lock, shared by all bars |
-| `collectors.d/` | `logitech-solaar`, `airpods`, `xinmeng-dongle` |
+| `collectors.d/` | `logitech-solaar`, `airpods`, `xinmeng-dongle`, `pulsar-dongle`, `keychron-ultra` |
 | `sources/gfps-daemon` | Single-instance wrapper that follows connected audio devices with `gfps-reader` |
 | `sources/gfps-reader` | Google Fast Pair message-stream reader from [Omaphones](https://github.com/ncr/omarchy-headphones) (MIT) |
 | `notify-once` | De-duplicates notifications across bars |
@@ -158,9 +201,10 @@ mientras ningún gadget reporta batería. Conecta uno inalámbrico, o corre
 **Qué reconoce:** dispositivos Bluetooth y receptores Logitech (UPower),
 Logitech con Solaar (incluso cargando por cable), audífonos USB/2.4 GHz con
 HeadsetControl, Galaxy Buds por auricular, earbuds con Google Fast Pair (Sony,
-JBL, Jabra, Nothing, Soundcore, Pixel Buds...), AirPods/Beats y teclados
-Xinmeng por su dongle 2.4G (Attack Shark M87 PRO V2). Herramientas opcionales:
-`omarchy pkg add solaar headsetcontrol`.
+JBL, Jabra, Nothing, Soundcore, Pixel Buds...), AirPods/Beats, teclados
+Xinmeng por su dongle 2.4G (Attack Shark M87 PRO V2), ratones Pulsar CrazyLight
+por su dongle 8K y teclados Keychron Ultra 8K con firmware que responda `A7 31`.
+Herramientas opcionales: `omarchy pkg add solaar headsetcontrol`.
 
 **Qué hace:** icono fijo en la barra con resumen al pasar el mouse; panel con
 nivel, barra y detalle por auricular; estado *cargando* (o *cargando
@@ -180,6 +224,13 @@ ponerle tu nombre:
 ```bash
 omarchy bar set io.github.69harold69.gadget-batteries names --json '{"M87 keyboard (2.4G)": "Attack Shark M87 PRO V2"}'
 ```
+
+**Ratón Pulsar CrazyLight y teclado Keychron Ultra 8K por 2.4 GHz:** instala la
+regla de [Pulsar CrazyLight mice](#pulsar-crazylight-mice-8k-dongle-gen2) o de
+[Keychron Ultra 8K keyboards](#keychron-ultra-8k-keyboards). Igual que la de
+Xinmeng, solo abre la interfaz de configuración. El teclado Keychron necesita
+un firmware que responda `A7 31` (el de fábrica no lo hace; por Bluetooth la
+batería sale sin nada de esto).
 
 **Agregar tus propios gadgets:** escribe un JSON en
 `~/.cache/omarchy-accessories/external.json` o pon un script en
