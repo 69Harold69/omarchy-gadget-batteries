@@ -1,0 +1,6 @@
+# Gadget Batteries: let the logged-in user query the battery of Pulsar CrazyLight
+# mice through their 8K Dongle Gen.2 (3710:5406). Only USB interface 01 (vendor
+# configuration reports) is opened up; it also carries mouse movement and media
+# keys, but not the keyboard interface (02).
+SUBSYSTEM=="hidraw", KERNELS=="0003:3710:5406.*", ENV{GADGETS_PULSAR}="1"
+SUBSYSTEM=="hidraw", ENV{GADGETS_PULSAR}=="1", ATTRS{bInterfaceNumber}=="01", TAG+="uaccess"

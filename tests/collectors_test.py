@@ -168,5 +168,49 @@ class SolaarTest(unittest.TestCase):
         ])
 
 
+pulsar = load("pulsar", "pulsar-dongle")
+keychron = load("keychron", "keychron-ultra")
+
+
+class PulsarTest(unittest.TestCase):
+    # Power reply read from an 8K Dongle Gen.2: 100 %, no cable, 4138 mV.
+    REPLY = bytes.fromhex("08 04 00 00 00 02 64 00 10 2a 00 00 00 00 00 00 a9")
+
+    def test_request_checksum(self):
+        request = pulsar.power_request()
+        self.assertEqual(request[:2], b"\x08\x04")
+        self.assertEqual(request[16], (0x55 - sum(request[:16])) & 0xFF)
+
+    def test_parses_power_reply(self):
+        self.assertEqual(pulsar.parse_power(self.REPLY), (100, False))
+        charging = bytearray(self.REPLY)
+        charging[6], charging[7] = 42, 1
+        charging[16] = (0x55 - sum(charging[:16])) & 0xFF
+        self.assertEqual(pulsar.parse_power(bytes(charging)), (42, True))
+
+    def test_ignores_other_reports(self):
+        bad_sum = self.REPLY[:16] + bytes([self.REPLY[16] ^ 1])
+        self.assertIsNone(pulsar.parse_power(bad_sum))
+        self.assertIsNone(pulsar.parse_power(bytes.fromhex("0b0000000000000000")))  # movement
+        no_level = bytearray(self.REPLY)
+        no_level[6] = 0
+        no_level[16] = (0x55 - sum(no_level[:16])) & 0xFF
+        self.assertIsNone(pulsar.parse_power(bytes(no_level)))
+
+
+class KeychronTest(unittest.TestCase):
+    def test_request(self):
+        self.assertEqual(keychron.battery_request()[:3], b"\x00\xa7\x31")
+        self.assertEqual(len(keychron.battery_request()), 33)
+
+    def test_parses_reply(self):
+        self.assertEqual(keychron.parse_battery(bytes([0xA7, 0x31, 100, 1]) + bytes(28)), (100, True))
+        self.assertEqual(keychron.parse_battery(bytes([0xA7, 0x31, 37, 0]) + bytes(28)), (37, False))
+
+    def test_stock_firmware_echo_is_ignored(self):
+        self.assertIsNone(keychron.parse_battery(bytes([0xA7, 0x31, 0, 0]) + bytes(28)))
+        self.assertIsNone(keychron.parse_battery(bytes([0xA7, 0x01, 0, 3]) + bytes(28)))
+
+
 if __name__ == "__main__":
     unittest.main()

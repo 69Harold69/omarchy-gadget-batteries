@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""Battery of Pulsar CrazyLight mice (X2 CrazyLight, X3 LHD CrazyLight, ...) through
+their 8K Dongle Gen.2 (3710:5406).
+
+Protocol as documented by pulsar-mouse-linux (drivers/nordic.py, MIT): 17-byte
+reports with report ID 0x08 on the dongle's USB interface 01,
+[08 cmd data... checksum], checksum = 0x55 - sum(bytes 0..15). Command 0x04
+(power) is answered with the battery percentage in byte 6, 1 in byte 7 while
+the charging cable is plugged in, and millivolts in bytes 8-9. A mouse that is
+asleep or out of range does not answer, and nothing is listed.
+
+Needs setup/70-gadgets-pulsar-dongle.rules so the user can open interface 01.
+Prints a JSON array in the gadgets external format.
+"""
+import json
+import os
+import select
+import sys
+import time
+
+USB_ID = "0003:3710:5406"
+INTERFACE = "01"
+REPORT_ID = 0x08
+CMD_POWER = 0x04
+
+
+def checksum(data):
+    return (0x55 - sum(data)) & 0xFF
+
+
+def power_request():
+    packet = [REPORT_ID, CMD_POWER] + [0] * 14
+    return bytes(packet + [checksum(packet)])
+
+
+def parse_power(data):
+    """(level, charging) from a power reply, or None for anything else."""
+    if (len(data) != 17 or data[0] != REPORT_ID or data[1] != CMD_POWER
+            or checksum(data[:16]) != data[16]):
+        return None
+    if not 1 <= data[6] <= 100:
+        return None
+    return data[6], bool(data[7])
+
+
+def dongle_node():
+    for name in sorted(os.listdir("/sys/class/hidraw")):
+        dev = os.path.realpath("/sys/class/hidraw/%s/device" % name)
+        iface = os.path.join(dev, "..", "bInterfaceNumber")
+        if USB_ID in dev and os.path.exists(iface):
+            with open(iface) as handle:
+                if handle.read().strip() == INTERFACE:
+                    return "/dev/" + name
+    return None
+
+
+def read_power(node):
+    fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        for _ in range(2):
+            os.write(fd, power_request())
+            end = time.time() + 1.0
+            while time.time() < end:
+                if not select.select([fd], [], [], 0.3)[0]:
+                    continue
+                # The interface also carries mouse movement; skip anything
+                # that is not the reply.
+                reading = parse_power(os.read(fd, 64))
+                if reading:
+                    return reading
+    finally:
+        os.close(fd)
+    return None
+
+
+def main():
+    node = dongle_node()
+    if not node:
+        return []
+    try:
+        reading = read_power(node)
+    except OSError:
+        return []
+    if not reading:
+        return []
+    return [{
+        "id": "pulsar:3710:5406",
+        "name": "Pulsar CrazyLight",
+        "kind": "mouse",
+        "pct": reading[0],
+        "charging": reading[1],
+        "ts": int(time.time()),
+        "ttl": 180,
+        "transport": "wireless",
+    }]
+
+
+if __name__ == "__main__":
+    sys.stdout.write(json.dumps(main()) + "\n")

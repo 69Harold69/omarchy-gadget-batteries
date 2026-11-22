@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Battery of Keychron Ultra 8K keyboards (ZMK firmware) over the USB cable or
+the Ultra-Link 8K receiver (3434:d028).
+
+The host sends A7 31 on the raw HID interface (usage page 0xFF60, 32-byte
+reports) and the keyboard answers A7 31 <percent> <charging>. Stock firmware
+does not implement 0x31 and echoes the request without a level, so nothing is
+listed; the command is proposed for the official firmware in
+https://github.com/Keychron/zmk/pull/15. A keyboard that is asleep or out of
+range is not listed either. In Bluetooth mode these keyboards report their
+battery through UPower without any of this.
+
+Keyboards on the cable are matched by Keychron's vendor id and the raw HID
+interface (the interface whose report descriptor starts with usage page
+0xFF60), so any Ultra 8K model works.
+
+Needs setup/70-gadgets-keychron-ultra.rules so the user can open that interface.
+Prints a JSON array in the gadgets external format.
+"""
+import json
+import os
+import select
+import sys
+import time
+
+VENDOR = "3434"
+RECEIVER = "D028"
+RAW_HID_PAGE = bytes([0x06, 0x60, 0xFF])  # Usage Page (0xFF60)
+
+
+def battery_request():
+    return bytes([0x00, 0xA7, 0x31]) + bytes(30)  # report ID 0 + 32 bytes
+
+
+def parse_battery(data):
+    """(level, charging) from an A7 31 reply, or None for anything else."""
+    if len(data) < 4 or data[0] != 0xA7 or data[1] != 0x31:
+        return None
+    if not 1 <= data[2] <= 100:
+        return None
+    return data[2], bool(data[3])
+
+
+def raw_hid_nodes():
+    """[(node, product id)] of every Keychron raw HID interface."""
+    out = []
+    for name in sorted(os.listdir("/sys/class/hidraw")):
+        dev = os.path.realpath("/sys/class/hidraw/%s/device" % name)
+        hid_id = os.path.basename(dev).split(".")[0].split(":")  # 0003:3434:0C31
+        if len(hid_id) != 3 or hid_id[1].upper() != VENDOR:
+            continue
+        try:
+            with open(os.path.join(dev, "report_descriptor"), "rb") as handle:
+                if not handle.read(3) == RAW_HID_PAGE:
+                    continue
+        except OSError:
+            continue
+        out.append(("/dev/" + name, hid_id[2].upper()))
+    return out
+
+
+def read_battery(node):
+    fd = os.open(node, os.O_RDWR | os.O_NONBLOCK)
+    try:
+        for _ in range(2):
+            os.write(fd, battery_request())
+            end = time.time() + 1.0
+            while time.time() < end:
+                if not select.select([fd], [], [], 0.3)[0]:
+                    continue
+                data = os.read(fd, 64)
+                if data[:2] == b"\xa7\x31":
+                    return parse_battery(data)
+    finally:
+        os.close(fd)
+    return None
+
+
+def main():
+    for node, pid in raw_hid_nodes():
+        try:
+            reading = read_battery(node)
+        except OSError:
+            continue
+        if reading:
+            return [{
+                "id": "keychron-ultra",
+                "name": "Keychron keyboard",
+                "kind": "keyboard",
+                "pct": reading[0],
+                "charging": reading[1],
+                "ts": int(time.time()),
+                "ttl": 180,
+                "transport": "wireless" if pid == RECEIVER else "wired",
+            }]
+    return []
+
+
+if __name__ == "__main__":
+    sys.stdout.write(json.dumps(main()) + "\n")
